@@ -14,6 +14,12 @@ config ATH10K_PCI
 	---help---
 	  This module adds support for PCIE bus
 
+config ATH10K_SDIO
+	tristate "Atheros ath10k SDIO support (EXPERIMENTAL)"
+	depends on ATH10K && MMC
+	---help---
+	  This module adds support for SDIO/MMC bus
+
 config ATH10K_DEBUG
 	bool "Atheros ath10k debugging"
 	depends on ATH10K

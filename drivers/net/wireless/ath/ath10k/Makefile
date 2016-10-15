@@ -25,5 +25,8 @@ obj-$(CONFIG_ATH10K_PCI) += ath10k_pci.o
 ath10k_pci-y += pci.o \
 		ce.o
 
+obj-$(CONFIG_ATH10K_SDIO) += ath10k_sdio.o
+ath10k_sdio-y += sdio.o
+
 # for tracing framework to find trace.h
 CFLAGS_trace.o := -I$(src)
