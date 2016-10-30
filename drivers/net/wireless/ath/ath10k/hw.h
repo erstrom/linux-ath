@@ -30,6 +30,7 @@
 #define QCA9984_1_0_DEVICE_ID	(0x0046)
 #define QCA9377_1_0_DEVICE_ID   (0x0042)
 #define QCA9887_1_0_DEVICE_ID   (0x0050)
+#define QCA6584_1_0_DEVICE_ID   (0x050a)
 
 /* QCA988X 1.0 definitions (unsupported) */
 #define QCA988X_HW_1_0_CHIP_ID_REV	0x0
@@ -55,6 +56,14 @@
 #define QCA6174_HW_2_1_VERSION		0x05010000
 #define QCA6174_HW_3_0_VERSION		0x05020000
 #define QCA6174_HW_3_2_VERSION		0x05030000
+
+/* QCA6584 definitions */
+#define QCA6584_HW_VERSION		QCA6174_HW_3_2_VERSION
+#define QCA6584_HW_FW_DIR		ATH10K_FW_DIR "/QCA6584"
+#define QCA6584_HW_BOARD_DATA_FILE	"bdwlan30.bin"
+#define QCA6584_HW_FIRMWARE_FILE	"qwlan30.bin"
+#define QCA6584_HW_OTP_FILE		"otp30.bin"
+#define QCA6584_HW_PATCH_LOAD_ADDR	0x1234
 
 /* QCA9377 target BMI version signatures */
 #define QCA9377_HW_1_0_DEV_VERSION	0x05020000
