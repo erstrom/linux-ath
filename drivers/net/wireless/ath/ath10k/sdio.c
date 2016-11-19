@@ -1764,8 +1764,10 @@ static int ath10k_sdio_probe(struct sdio_func *func,
 
 	INIT_WORK(&ar_sdio->wr_async_work, ath10k_sdio_write_async_work);
 	ar_sdio->workqueue = create_singlethread_workqueue("ath10k_sdio_wq");
-	if (!ar_sdio->workqueue)
+	if (!ar_sdio->workqueue) {
+		ret = -ENOMEM;
 		goto err;
+	}
 
 	init_waitqueue_head(&ar_sdio->irq_wq);
 
