@@ -500,6 +500,39 @@ int ath10k_htt_h2t_ver_req_msg(struct ath10k_htt *htt)
 	return 0;
 }
 
+int ath10k_htt_h2t_ver_req_msg_tlv(struct ath10k_htt *htt)
+{
+	struct ath10k *ar = htt->ar;
+	struct sk_buff *skb;
+	struct htt_cmd *cmd;
+	int len = 0;
+	int ret;
+
+	len += sizeof(cmd->hdr);
+	len += sizeof(cmd->ver_req_tlv);
+
+	skb = ath10k_htc_alloc_skb(ar, len);
+	if (!skb)
+		return -ENOMEM;
+
+	skb_put(skb, len);
+	memset(skb->data, 0, skb->len);
+	cmd = (struct htt_cmd *)skb->data;
+	cmd->hdr.msg_type = HTT_H2T_MSG_TYPE_VERSION_REQ;
+	cmd->ver_req_tlv.tlv_header.tag =
+		HTT_OPTION_TLV_TAG_MAX_TX_QUEUE_GROUPS;
+	cmd->ver_req_tlv.tlv_header.length = 1;
+	cmd->ver_req_tlv.max_tx_group = 2;
+
+	ret = ath10k_htc_send(&htt->ar->htc, htt->eid, skb);
+	if (ret) {
+		dev_kfree_skb_any(skb);
+		return ret;
+	}
+
+	return 0;
+}
+
 int ath10k_htt_h2t_stats_req(struct ath10k_htt *htt, u8 mask, u64 cookie)
 {
 	struct ath10k *ar = htt->ar;
