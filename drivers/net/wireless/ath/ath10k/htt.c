@@ -236,7 +236,12 @@ int ath10k_htt_setup(struct ath10k_htt *htt)
 
 	init_completion(&htt->target_version_received);
 
-	status = ath10k_htt_h2t_ver_req_msg(htt);
+	if (ar->running_fw->fw_file.htt_op_version ==
+	    ATH10K_FW_HTT_OP_VERSION_TLV)
+		status = ath10k_htt_h2t_ver_req_msg_tlv(htt);
+	else
+		status = ath10k_htt_h2t_ver_req_msg(htt);
+
 	if (status)
 		return status;
 
