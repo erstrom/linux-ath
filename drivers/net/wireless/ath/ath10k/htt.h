@@ -66,6 +66,27 @@ struct htt_ver_req {
 	u8 pad[sizeof(u32) - sizeof(struct htt_cmd_hdr)];
 } __packed;
 
+enum htt_option_tlv_tags {
+	HTT_OPTION_TLV_TAG_RESERVED0                = 0x0,
+	HTT_OPTION_TLV_TAG_LL_BUS_ADDR_SIZE         = 0x1,
+	HTT_OPTION_TLV_TAG_HL_SUPPRESS_TX_COMPL_IND = 0x2,
+	HTT_OPTION_TLV_TAG_MAX_TX_QUEUE_GROUPS      = 0x3,
+	HTT_OPTION_TLV_TAG_SUPPORT_TX_MSDU_DESC_EXT = 0x4,
+};
+
+struct htt_option_tlv_header {
+	/* Any of the values in enum htt_option_tlv_tags */
+	u8 tag;
+	u8 length;
+} __packed;
+
+struct htt_ver_req_tlv {
+	u8 pad[3];
+	struct htt_option_tlv_header tlv_header;
+	u8 max_tx_group;
+	u8 reserved;
+} __packed;
+
 /*
  * HTT tx MSDU descriptor
  *
@@ -1509,6 +1530,7 @@ struct htt_cmd {
 	struct htt_cmd_hdr hdr;
 	union {
 		struct htt_ver_req ver_req;
+		struct htt_ver_req_tlv ver_req_tlv;
 		struct htt_mgmt_tx_desc mgmt_tx;
 		struct htt_data_tx_desc data_tx;
 		struct htt_rx_ring_setup rx_setup;
@@ -1794,6 +1816,7 @@ void ath10k_htt_htc_tx_complete(struct ath10k *ar, struct sk_buff *skb);
 void ath10k_htt_htc_t2h_msg_handler(struct ath10k *ar, struct sk_buff *skb);
 bool ath10k_htt_t2h_msg_handler(struct ath10k *ar, struct sk_buff *skb);
 int ath10k_htt_h2t_ver_req_msg(struct ath10k_htt *htt);
+int ath10k_htt_h2t_ver_req_msg_tlv(struct ath10k_htt *htt);
 int ath10k_htt_h2t_stats_req(struct ath10k_htt *htt, u8 mask, u64 cookie);
 int ath10k_htt_send_frag_desc_bank_cfg(struct ath10k_htt *htt);
 int ath10k_htt_send_rx_ring_cfg_ll(struct ath10k_htt *htt);
