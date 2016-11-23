@@ -242,6 +242,14 @@ struct htt_rx_ring_setup_ring {
 	__le16 frag_info_offset;
 } __packed;
 
+struct htt_rx_ring_setup_ring_hl {
+	u8 paddr[4];
+	u8 base_paddr[4];
+	__le16 ring_size;
+	__le16 buf_size;
+	__le32 flags;
+} __packed;
+
 struct htt_rx_ring_setup_hdr {
 	u8 num_rings; /* supported values: 1, 2 */
 	__le16 rsvd0;
@@ -249,7 +257,10 @@ struct htt_rx_ring_setup_hdr {
 
 struct htt_rx_ring_setup {
 	struct htt_rx_ring_setup_hdr hdr;
-	struct htt_rx_ring_setup_ring rings[0];
+	union {
+		struct htt_rx_ring_setup_ring rings[0];
+		struct htt_rx_ring_setup_ring_hl rings_hl[0];
+	};
 } __packed;
 
 /*
@@ -1820,6 +1831,7 @@ int ath10k_htt_h2t_ver_req_msg_tlv(struct ath10k_htt *htt);
 int ath10k_htt_h2t_stats_req(struct ath10k_htt *htt, u8 mask, u64 cookie);
 int ath10k_htt_send_frag_desc_bank_cfg(struct ath10k_htt *htt);
 int ath10k_htt_send_rx_ring_cfg_ll(struct ath10k_htt *htt);
+int ath10k_htt_send_rx_ring_cfg_hl(struct ath10k_htt *htt);
 int ath10k_htt_h2t_aggr_cfg_msg(struct ath10k_htt *htt,
 				u8 max_subfrms_ampdu,
 				u8 max_subfrms_amsdu);
