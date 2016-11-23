@@ -337,6 +337,7 @@ struct ath10k_sta {
 	u32 nss;
 	u32 smps;
 	u16 peer_id;
+	struct rate_info txrate;
 
 	struct work_struct update_wk;
 
@@ -557,12 +558,17 @@ enum ath10k_fw_features {
 	 */
 	ATH10K_FW_FEATURE_BTCOEX_PARAM = 14,
 
-	/* Older firmware with HTT delivers incorrect tx status for null func
-	 * frames to driver, but this fixed in 10.2 and 10.4 firmware versions.
-	 * Also this workaround results in reporting of incorrect null func
-	 * status for 10.4. This flag is used to skip the workaround.
+	/* Unused flag and proven to be not working, enable this if you want
+	 * to experiment sending NULL func data frames in HTT TX
 	 */
 	ATH10K_FW_FEATURE_SKIP_NULL_FUNC_WAR = 15,
+
+	/* Firmware allow other BSS mesh broadcast/multicast frames without
+	 * creating monitor interface. Appropriate rxfilters are programmed for
+	 * mesh vdev by firmware itself. This feature flags will be used for
+	 * not creating monitor vdev while configuring mesh node.
+	 */
+	ATH10K_FW_FEATURE_ALLOWS_MESH_BCAST = 16,
 
 	/* keep last */
 	ATH10K_FW_FEATURE_COUNT,
@@ -693,6 +699,21 @@ struct ath10k_fw_components {
 	size_t board_len;
 
 	struct ath10k_fw_file fw_file;
+};
+
+struct ath10k_per_peer_tx_stats {
+	u32	succ_bytes;
+	u32	retry_bytes;
+	u32	failed_bytes;
+	u8	ratecode;
+	u8	flags;
+	u16	peer_id;
+	u16	succ_pkts;
+	u16	retry_pkts;
+	u16	failed_pkts;
+	u16	duration;
+	u32	reserved1;
+	u32	reserved2;
 };
 
 struct ath10k {
@@ -908,6 +929,7 @@ struct ath10k {
 
 	struct ath10k_thermal thermal;
 	struct ath10k_wow wow;
+	struct ath10k_per_peer_tx_stats peer_tx_stats;
 
 	/* NAPI */
 	struct net_device napi_dev;
