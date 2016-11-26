@@ -1120,6 +1120,37 @@ static int ath10k_sdio_hif_enable_intrs(struct ath10k_sdio *ar_sdio)
 	return 0;
 }
 
+#define FIFO_TIMEOUT_AND_CHIP_CONTROL   0x00000868u
+#define FIFO_TIMEOUT_AND_CHIP_CONTROL_DISABLE_SLEEP_OFF 0xFFFEFFFF
+#define FIFO_TIMEOUT_AND_CHIP_CONTROL_DISABLE_SLEEP_ON 0x10000
+
+static int ath10k_sdio_hif_set_mbox_sleep(struct ath10k *ar, bool enable_sleep)
+{
+	int ret;
+	u32 val;
+
+	ret = ath10k_sdio_read_write_sync(ar, FIFO_TIMEOUT_AND_CHIP_CONTROL,
+					  (u8 *)&val, sizeof(val),
+					  HIF_RD_SYNC_BYTE_INC);
+	if (ret) {
+		ath10k_warn(ar, "Failed to read addr: %x, code: %d\n",
+			    FIFO_TIMEOUT_AND_CHIP_CONTROL, ret);
+		goto out;
+	}
+
+	if (enable_sleep)
+		val &= FIFO_TIMEOUT_AND_CHIP_CONTROL_DISABLE_SLEEP_OFF;
+	else
+		val |= FIFO_TIMEOUT_AND_CHIP_CONTROL_DISABLE_SLEEP_ON;
+
+	ret = ath10k_sdio_read_write_sync(ar, FIFO_TIMEOUT_AND_CHIP_CONTROL,
+					  (u8 *)&val, sizeof(val),
+					  HIF_WR_SYNC_BYTE_INC);
+
+out:
+	return ret;
+}
+
 static int ath10k_sdio_hif_start(struct ath10k *ar)
 {
 	int ret;
@@ -1139,6 +1170,18 @@ static int ath10k_sdio_hif_start(struct ath10k *ar)
 			   "Mailbox SWAP Service is enabled\n");
 		ar_sdio->swap_mbox = true;
 	}
+
+	/* Enable sleep and then disable it again */
+	ret = ath10k_sdio_hif_set_mbox_sleep(ar, true);
+	if (ret)
+		goto out;
+
+	/* Wait for 20ms for the written value to take effect */
+	msleep(20);
+
+	ret = ath10k_sdio_hif_set_mbox_sleep(ar, false);
+	if (ret)
+		goto out;
 
 	/* eid 0 always uses the lower part of the extended mailbox address
 	 * space (ext_info[0].htc_ext_addr).
