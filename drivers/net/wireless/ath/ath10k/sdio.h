@@ -109,6 +109,7 @@ struct ath10k_sdio_rx_data {
 	enum ath10k_htc_ep_id eid;
 	bool part_of_bundle;
 	bool last_in_bundle;
+	bool trailer_only;
 	int status;
 };
 
