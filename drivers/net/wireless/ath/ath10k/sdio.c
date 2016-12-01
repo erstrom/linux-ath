@@ -45,6 +45,19 @@ static int ath10k_sdio_hif_diag_read32(struct ath10k *ar, u32 address,
 
 /* HIF mbox interrupt handling */
 
+static bool is_trailer_only_msg(struct ath10k_sdio_rx_data *pkt)
+{
+	bool trailer_only = false;
+	struct ath10k_htc_hdr *htc_hdr =
+		(struct ath10k_htc_hdr *)pkt->skb->data;
+	u16 len = __le16_to_cpu(htc_hdr->len);
+
+	if (len == htc_hdr->trailer_len)
+		trailer_only = true;
+
+	return trailer_only;
+}
+
 static int ath10k_sdio_mbox_rx_process_packet(struct ath10k_sdio *ar_sdio,
 					      struct ath10k_sdio_rx_data *pkt,
 					      u32 *lookaheads,
@@ -77,6 +90,9 @@ static int ath10k_sdio_mbox_rx_process_packet(struct ath10k_sdio *ar_sdio,
 		if (status)
 			goto err;
 
+		if (is_trailer_only_msg(pkt))
+			pkt->trailer_only = true;
+
 		skb_pull(skb, sizeof(*htc_hdr));
 		skb_trim(skb, skb->len - htc_hdr->trailer_len);
 	}
@@ -91,6 +107,7 @@ static inline void ath10k_sdio_mbox_free_rx_pkt(struct ath10k_sdio_rx_data *pkt)
 	pkt->skb = NULL;
 	pkt->alloc_len = 0;
 	pkt->act_len = 0;
+	pkt->trailer_only = false;
 }
 
 static inline int ath10k_sdio_mbox_alloc_rx_pkt(struct ath10k_sdio_rx_data *pkt,
@@ -106,6 +123,7 @@ static inline int ath10k_sdio_mbox_alloc_rx_pkt(struct ath10k_sdio_rx_data *pkt,
 	pkt->alloc_len = full_len;
 	pkt->part_of_bundle = part_of_bundle;
 	pkt->last_in_bundle = last_in_bundle;
+	pkt->trailer_only = false;
 
 	return 0;
 }
@@ -159,7 +177,11 @@ static int ath10k_sdio_mbox_rx_process_packets(struct ath10k_sdio *ar_sdio,
 		if (status)
 			goto out;
 
-		ep->ep_ops.ep_rx_complete(ar_sdio->ar, pkt->skb);
+		if (!pkt->trailer_only)
+			ep->ep_ops.ep_rx_complete(ar_sdio->ar, pkt->skb);
+		else
+			kfree_skb(pkt->skb);
+
 		/* The RX complete handler now owns the skb...*/
 		pkt->skb = NULL;
 		pkt->alloc_len = 0;
