@@ -91,6 +91,8 @@ struct ath10k_hif_ops {
 	/* fetch calibration data from target eeprom */
 	int (*fetch_cal_eeprom)(struct ath10k *ar, void **data,
 				size_t *data_len);
+
+	int (*enable_irq)(struct ath10k *ar);
 };
 
 static inline int ath10k_hif_tx_sg(struct ath10k *ar, u8 pipe_id,
@@ -214,6 +216,14 @@ static inline int ath10k_hif_fetch_cal_eeprom(struct ath10k *ar,
 		return -EOPNOTSUPP;
 
 	return ar->hif.ops->fetch_cal_eeprom(ar, data, data_len);
+}
+
+static inline int ath10k_hif_enable_irq(struct ath10k *ar)
+{
+	if (!ar->hif.ops->enable_irq)
+		return -EOPNOTSUPP;
+
+	return ar->hif.ops->enable_irq(ar);
 }
 
 #endif /* _HIF_H_ */
