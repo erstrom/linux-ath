@@ -1070,10 +1070,11 @@ int ath10k_sdio_hif_tx_sg(struct ath10k *ar, u8 pipe_id,
 	return 0;
 }
 
-static int ath10k_sdio_hif_enable_intrs(struct ath10k_sdio *ar_sdio)
+static int ath10k_sdio_hif_enable_intrs(struct ath10k *ar)
 {
 	struct ath10k_sdio_irq_enable_reg regs;
 	int status;
+	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct ath10k_sdio_irq_data *irq_data = &ar_sdio->irq_data;
 
 	memset(&regs, 0, sizeof(regs));
@@ -1157,10 +1158,6 @@ static int ath10k_sdio_hif_start(struct ath10k *ar)
 	}
 
 	sdio_release_host(ar_sdio->func);
-
-	ret = ath10k_sdio_hif_enable_intrs(ar_sdio);
-	if (ret)
-		ath10k_err(ar, "Failed to enable sdio interrupts: %d\n", ret);
 
 out:
 	return ret;
@@ -1717,6 +1714,7 @@ static const struct ath10k_hif_ops ath10k_sdio_hif_ops = {
 	.resume			= ath10k_sdio_hif_resume,
 #endif
 	.fetch_cal_eeprom	= ath10k_sdio_hif_fetch_cal_eeprom,
+	.enable_irq		= ath10k_sdio_hif_enable_intrs,
 };
 
 #ifdef CONFIG_PM_SLEEP
