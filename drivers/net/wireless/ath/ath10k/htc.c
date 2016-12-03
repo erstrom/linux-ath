@@ -617,6 +617,15 @@ int ath10k_htc_wait_target(struct ath10k_htc *htc)
 		return status;
 	}
 
+	/* Enable interrupts here if this is an SDIO chipset.
+	 * This is done in order to make sure the HTC control service
+	 * has been connected before interrupts are enabled.
+	 * Otherwise there is a risk that the HTC ready message will be
+	 * received before the service is connected.
+	 */
+	if (ar->hif.bus == ATH10K_BUS_SDIO)
+		ath10k_hif_enable_irq(ar);
+
 	time_left = wait_for_completion_timeout(&htc->ctl_resp,
 						ATH10K_HTC_WAIT_TIMEOUT_HZ);
 	if (!time_left) {
