@@ -1491,11 +1491,7 @@ int ath10k_sdio_hif_exchange_bmi_msg(struct ath10k *ar,
 		if (ret)
 			return ret;
 
-		/* BMI data is written to the end of the mailbox address
-		 * space
-		 */
-		addr = ar_sdio->mbox_info.htc_addr + ATH10K_HIF_MBOX_WIDTH -
-		       req_len;
+		addr = ar_sdio->mbox_info.htc_addr;
 
 		ret = ath10k_sdio_read_write_sync(ar, addr, req, req_len,
 						  HIF_WR_SYNC_BYTE_INC);
