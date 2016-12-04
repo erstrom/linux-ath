@@ -445,6 +445,7 @@ struct ath10k_hw_ops {
 
 extern const struct ath10k_hw_ops qca988x_ops;
 extern const struct ath10k_hw_ops qca99x0_ops;
+extern const struct ath10k_hw_ops empty_ops;
 
 static inline int
 ath10k_rx_desc_get_l3_pad_bytes(struct ath10k_hw_params *hw,
