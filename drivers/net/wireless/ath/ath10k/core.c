@@ -307,6 +307,30 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 		.hw_ops = &qca99x0_ops,
 		.decap_align_bytes = 1,
 	},
+	{
+		.id = QCA6174_HW_3_2_VERSION,
+		.dev_id = QCA6584_1_0_DEVICE_ID,
+		.name = "qca6584",
+		.patch_load_addr = QCA6584_HW_PATCH_LOAD_ADDR,
+		.uart_pin = 7,
+		.cc_wraparound_type = ATH10K_HW_CC_WRAP_SHIFTED_ALL,
+		.otp_exe_param = 0x10,
+		.channel_counters_freq_hz = 88000,
+		.max_probe_resp_desc_thres = 0,
+		.cal_data_len = 0,
+		.fw = {
+			.dir = QCA6584_HW_FW_DIR,
+			.board = QCA6584_HW_BOARD_DATA_FILE,
+			.fw = QCA6584_HW_FIRMWARE_FILE,
+			.otp = QCA6584_HW_OTP_FILE,
+			.wmi_op_version = ATH10K_FW_WMI_OP_VERSION_TLV,
+			.htt_op_version = ATH10K_FW_HTT_OP_VERSION_TLV,
+			.board_size = QCA6584_BOARD_DATA_SZ,
+			.board_ext_size = QCA6584_BOARD_EXT_DATA_SZ,
+		},
+		.hw_ops = &empty_ops,
+		.decap_align_bytes = 4,
+	},
 };
 
 static const char *const ath10k_core_fw_feature_str[] = {
