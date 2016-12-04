@@ -1157,6 +1157,32 @@ static int ath10k_sdio_hif_start(struct ath10k *ar)
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	u32 addr, val;
 
+	ret = ath10k_sdio_hif_disable_intrs(ar_sdio);
+	if (ret)
+		goto out;
+
+	/* eid 0 always uses the lower part of the extended mailbox address
+	 * space (ext_info[0].htc_ext_addr).
+	 */
+	ar_sdio->mbox_addr[0] = ar_sdio->mbox_info.ext_info[0].htc_ext_addr;
+	ar_sdio->mbox_size[0] = ar_sdio->mbox_info.ext_info[0].htc_ext_sz;
+
+	sdio_claim_host(ar_sdio->func);
+
+	/* Register the isr */
+	ret =  sdio_claim_irq(ar_sdio->func, ath10k_sdio_irq_handler);
+	if (ret) {
+		ath10k_err(ar, "Failed to claim sdio irq: %d\n", ret);
+		sdio_release_host(ar_sdio->func);
+		goto out;
+	}
+
+	sdio_release_host(ar_sdio->func);
+
+	ret = ath10k_sdio_hif_enable_intrs(ar_sdio);
+	if (ret)
+		ath10k_err(ar, "Failed to enable sdio interrupts: %d\n", ret);
+
 	addr = host_interest_item_address(HI_ITEM(hi_acs_flags));
 
 	ret = ath10k_sdio_hif_diag_read32(ar, addr, &val);
@@ -1182,28 +1208,6 @@ static int ath10k_sdio_hif_start(struct ath10k *ar)
 	ret = ath10k_sdio_hif_set_mbox_sleep(ar, false);
 	if (ret)
 		goto out;
-
-	/* eid 0 always uses the lower part of the extended mailbox address
-	 * space (ext_info[0].htc_ext_addr).
-	 */
-	ar_sdio->mbox_addr[0] = ar_sdio->mbox_info.ext_info[0].htc_ext_addr;
-	ar_sdio->mbox_size[0] = ar_sdio->mbox_info.ext_info[0].htc_ext_sz;
-
-	sdio_claim_host(ar_sdio->func);
-
-	/* Register the isr */
-	ret =  sdio_claim_irq(ar_sdio->func, ath10k_sdio_irq_handler);
-	if (ret) {
-		ath10k_err(ar, "Failed to claim sdio irq: %d\n", ret);
-		sdio_release_host(ar_sdio->func);
-		goto out;
-	}
-
-	sdio_release_host(ar_sdio->func);
-
-	ret = ath10k_sdio_hif_enable_intrs(ar_sdio);
-	if (ret)
-		ath10k_err(ar, "Failed to enable sdio interrupts: %d\n", ret);
 
 out:
 	return ret;
