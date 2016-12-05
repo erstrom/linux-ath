@@ -1100,6 +1100,38 @@ success:
 	return 0;
 }
 
+static int ath10k_core_fetch_firmware_api_1(struct ath10k *ar,
+					    const char *fw_name,
+					    const char *otp_name,
+					    struct ath10k_fw_file *fw_file)
+{
+	const struct firmware *fw;
+
+	if (otp_name) {
+		fw = ath10k_fetch_fw_file(ar,
+					  ar->hw_params.fw.dir,
+					  otp_name);
+		if (IS_ERR(fw))
+			return -ENOENT;
+		fw_file->otp_len = fw->size;
+		fw_file->otp_data = kmemdup(fw->data, fw->size, GFP_KERNEL);
+	} else {
+		fw_file->otp_len = 0;
+		fw_file->otp_data = NULL;
+	}
+
+	fw = ath10k_fetch_fw_file(ar,
+				  ar->hw_params.fw.dir,
+				  fw_name);
+	if (IS_ERR(fw))
+		return -ENOENT;
+	fw_file->firmware = fw;
+	fw_file->firmware_len = fw->size;
+	fw_file->firmware_data = kmemdup(fw->data, fw->size, GFP_KERNEL);
+
+	return 0;
+}
+
 int ath10k_core_fetch_firmware_api_n(struct ath10k *ar, const char *name,
 				     struct ath10k_fw_file *fw_file)
 {
@@ -1287,6 +1319,28 @@ static int ath10k_core_fetch_firmware_files(struct ath10k *ar)
 
 	/* calibration file is optional, don't check for any errors */
 	ath10k_fetch_cal_file(ar);
+
+	/* Use the "special" firmware file associated with the chipset
+	 * if provided.
+	 */
+	if (ar->hw_params.fw.fw) {
+		ar->fw_api = 1;
+		ath10k_dbg(ar, ATH10K_DBG_BOOT, "trying fw api %d\n",
+			   ar->fw_api);
+
+		ret = ath10k_core_fetch_firmware_api_1(ar,
+						       ar->hw_params.fw.fw,
+						       ar->hw_params.fw.otp,
+						       &ar->normal_mode_fw.fw_file);
+		if (ret)
+			return ret;
+
+		ar->normal_mode_fw.fw_file.wmi_op_version =
+			ar->hw_params.fw.wmi_op_version;
+		ar->normal_mode_fw.fw_file.htt_op_version =
+			ar->hw_params.fw.htt_op_version;
+		goto success;
+	}
 
 	ar->fw_api = 5;
 	ath10k_dbg(ar, ATH10K_DBG_BOOT, "trying fw api %d\n", ar->fw_api);
