@@ -399,6 +399,18 @@ struct ath10k_hw_params {
 	struct ath10k_hw_params_fw {
 		const char *dir;
 		const char *board;
+
+		/* Special firmware files that can be used instead of the
+		 * standard firmware files. The firmware file is assumed
+		 * to be of API version 1 and must not contain any elements.
+		 * This means that it can't contain otp calibration,
+		 * wmi op version and htt op version.
+		 */
+		const char *fw;
+		const char *otp;
+		enum ath10k_fw_wmi_op_version wmi_op_version;
+		enum ath10k_fw_htt_op_version htt_op_version;
+
 		size_t board_size;
 		size_t board_ext_size;
 	} fw;
