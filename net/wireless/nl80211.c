@@ -404,6 +404,7 @@ static const struct nla_policy nl80211_policy[NUM_NL80211_ATTR] = {
 				    .len = FILS_MAX_KEK_LEN },
 	[NL80211_ATTR_FILS_NONCES] = { .len = 2 * FILS_NONCE_LEN },
 	[NL80211_ATTR_MULTICAST_TO_UNICAST_ENABLED] = { .type = NLA_FLAG, },
+	[NL80211_ATTR_BSSID] = { .len = ETH_ALEN },
 };
 
 /* policy for the key attributes */
@@ -6703,7 +6704,20 @@ static int nl80211_trigger_scan(struct sk_buff *skb, struct genl_info *info)
 	request->no_cck =
 		nla_get_flag(info->attrs[NL80211_ATTR_TX_NO_CCK_RATE]);
 
-	if (info->attrs[NL80211_ATTR_MAC])
+	/* Initial implementation used NL80211_ATTR_MAC to set the specific
+	 * BSSID to scan for. This was problematic because that same attribute
+	 * was already used for another purpose (local random MAC address). The
+	 * NL80211_ATTR_BSSID attribute was added to fix this. For backwards
+	 * compatibility with older userspace components, also use the
+	 * NL80211_ATTR_MAC value here if it can be determined to be used for
+	 * the specific BSSID use case instead of the random MAC address
+	 * (NL80211_ATTR_SCAN_FLAGS is used to enable random MAC address use).
+	 */
+	if (info->attrs[NL80211_ATTR_BSSID])
+		memcpy(request->bssid,
+		       nla_data(info->attrs[NL80211_ATTR_BSSID]), ETH_ALEN);
+	else if (!(request->flags & NL80211_SCAN_FLAG_RANDOM_ADDR) &&
+		 info->attrs[NL80211_ATTR_MAC])
 		memcpy(request->bssid, nla_data(info->attrs[NL80211_ATTR_MAC]),
 		       ETH_ALEN);
 	else
@@ -6761,13 +6775,10 @@ nl80211_parse_sched_scan_plans(struct wiphy *wiphy, int n_plans,
 
 		/*
 		 * If scan plans are not specified,
-		 * %NL80211_ATTR_SCHED_SCAN_INTERVAL must be specified. In this
+		 * %NL80211_ATTR_SCHED_SCAN_INTERVAL will be specified. In this
 		 * case one scan plan will be set with the specified scan
 		 * interval and infinite number of iterations.
 		 */
-		if (!attrs[NL80211_ATTR_SCHED_SCAN_INTERVAL])
-			return -EINVAL;
-
 		interval = nla_get_u32(attrs[NL80211_ATTR_SCHED_SCAN_INTERVAL]);
 		if (!interval)
 			return -EINVAL;
@@ -10628,7 +10639,7 @@ static int nl80211_start_nan(struct sk_buff *skb, struct genl_info *info)
 	if (wdev->iftype != NL80211_IFTYPE_NAN)
 		return -EOPNOTSUPP;
 
-	if (!wdev_running(wdev))
+	if (wdev_running(wdev))
 		return -EEXIST;
 
 	if (rfkill_blocked(rdev->rfkill))
@@ -11792,9 +11803,6 @@ static int nl80211_set_multicast_to_unicast(struct sk_buff *skb,
 	struct wireless_dev *wdev = dev->ieee80211_ptr;
 	const struct nlattr *nla;
 	bool enabled;
-
-	if (netif_running(dev))
-		return -EBUSY;
 
 	if (!rdev->ops->set_multicast_to_unicast)
 		return -EOPNOTSUPP;
