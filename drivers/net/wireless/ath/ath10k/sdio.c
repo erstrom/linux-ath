@@ -260,7 +260,7 @@ static int ath10k_sdio_mbox_rx_alloc(struct ath10k_sdio *ar_sdio,
 		if (le16_to_cpu(htc_hdr->len) >
 		    ATH10K_HTC_MBOX_MAX_PAYLOAD_LENGTH) {
 			ath10k_err(ar,
-				   "payload len %d exceeds max htc : %u!\n",
+				   "payload len %d exceeds max htc : %lu!\n",
 				   le16_to_cpu(htc_hdr->len),
 				   ATH10K_HTC_MBOX_MAX_PAYLOAD_LENGTH);
 			status = -ENOMEM;
