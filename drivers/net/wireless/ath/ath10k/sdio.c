@@ -33,8 +33,11 @@
 #include "trace.h"
 #include "sdio.h"
 
-#define CALC_TXRX_PADDED_LEN(ar_sdio, len) \
-	(__ALIGN_MASK((len), (ar_sdio)->mbox_info.block_mask))
+static inline int ath10k_sdio_calc_txrx_padded_len(struct ath10k_sdio *ar_sdio,
+						   size_t len)
+{
+	return __ALIGN_MASK((len), ar_sdio->mbox_info.block_mask);
+}
 
 static int ath10k_sdio_read_write_sync(struct ath10k *ar, u32 addr, u8 *buf,
 				       u32 len, u32 request);
@@ -268,7 +271,7 @@ static int ath10k_sdio_mbox_rx_alloc(struct ath10k_sdio *ar_sdio,
 		}
 
 		act_len = le16_to_cpu(htc_hdr->len) + sizeof(*htc_hdr);
-		full_len = CALC_TXRX_PADDED_LEN(ar_sdio, act_len);
+		full_len = ath10k_sdio_calc_txrx_padded_len(ar_sdio, act_len);
 
 		if (full_len > ATH10K_SDIO_MAX_BUFFER_SIZE) {
 			ath10k_warn(ar,
@@ -1058,7 +1061,8 @@ static int ath10k_sdio_hif_tx_sg(struct ath10k *ar, u8 pipe_id,
 		address = ar_sdio->mbox_addr[bus_req->eid] +
 			  ar_sdio->mbox_size[bus_req->eid] - bus_req->skb->len;
 		bus_req->address = address;
-		bus_req->len = CALC_TXRX_PADDED_LEN(ar_sdio, bus_req->skb->len);
+		bus_req->len = ath10k_sdio_calc_txrx_padded_len(ar_sdio,
+								bus_req->skb->len);
 
 		spin_lock_bh(&ar_sdio->wr_async_lock);
 		list_add_tail(&bus_req->list, &ar_sdio->wr_asyncq);
