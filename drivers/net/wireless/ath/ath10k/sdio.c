@@ -155,8 +155,8 @@ static int ath10k_sdio_mbox_rx_process_packets(struct ath10k_sdio *ar_sdio,
 		id = ((struct ath10k_htc_hdr *)&lookaheads[i])->eid;
 
 		if (id >= ATH10K_HTC_EP_COUNT) {
-			ath10k_err(ar, "Invalid endpoint in look-ahead: %d\n",
-				   id);
+			ath10k_warn(ar, "Invalid endpoint in look-ahead: %d\n",
+				    id);
 			ret = -ENOMEM;
 			goto out;
 		}
@@ -164,7 +164,7 @@ static int ath10k_sdio_mbox_rx_process_packets(struct ath10k_sdio *ar_sdio,
 		ep = &htc->endpoint[id];
 
 		if (ep->service_id == 0) {
-			ath10k_err(ar, "ep %d is not connected !\n", id);
+			ath10k_warn(ar, "ep %d is not connected !\n", id);
 			ret = -ENOMEM;
 			goto out;
 		}
@@ -218,10 +218,10 @@ static int alloc_pkt_bundle(struct ath10k *ar,
 		    ATH10K_HTC_FLAG_BUNDLE_LSB;
 
 	if (*bndl_cnt > HTC_HOST_MAX_MSG_PER_BUNDLE) {
-		ath10k_err(ar,
-			   "HTC bundle len %u exceeds maximum %u !\n",
-			   le16_to_cpu(htc_hdr->len),
-			   HTC_HOST_MAX_MSG_PER_BUNDLE);
+		ath10k_warn(ar,
+			    "HTC bundle len %u exceeds maximum %u !\n",
+			    le16_to_cpu(htc_hdr->len),
+			    HTC_HOST_MAX_MSG_PER_BUNDLE);
 		ret = -ENOMEM;
 		goto err;
 	}
@@ -254,10 +254,10 @@ static int ath10k_sdio_mbox_rx_alloc(struct ath10k_sdio *ar_sdio,
 	struct ath10k *ar = ar_sdio->ar;
 
 	if (n_lookaheads > ATH10K_SDIO_MAX_RX_MSGS) {
-		ath10k_err(ar,
-			   "The total number of pkgs to be fetched (%u) exceeds maximum %u !\n",
-			   n_lookaheads,
-			   ATH10K_SDIO_MAX_RX_MSGS);
+		ath10k_warn(ar,
+			    "The total number of pkgs to be fetched (%u) exceeds maximum %u !\n",
+			    n_lookaheads,
+			    ATH10K_SDIO_MAX_RX_MSGS);
 		ret = -ENOMEM;
 		goto err;
 	}
@@ -270,10 +270,10 @@ static int ath10k_sdio_mbox_rx_alloc(struct ath10k_sdio *ar_sdio,
 
 		if (le16_to_cpu(htc_hdr->len) >
 		    ATH10K_HTC_MBOX_MAX_PAYLOAD_LENGTH) {
-			ath10k_err(ar,
-				   "payload len %d exceeds max htc : %lu!\n",
-				   le16_to_cpu(htc_hdr->len),
-				   ATH10K_HTC_MBOX_MAX_PAYLOAD_LENGTH);
+			ath10k_warn(ar,
+				    "payload len %d exceeds max htc : %lu!\n",
+				    le16_to_cpu(htc_hdr->len),
+				    ATH10K_HTC_MBOX_MAX_PAYLOAD_LENGTH);
 			ret = -ENOMEM;
 			goto err;
 		}
@@ -459,8 +459,8 @@ static int ath10k_sdio_mbox_rxmsg_pending_handler(struct ath10k_sdio *ar_sdio,
 	}
 
 	if (ret && (ret != -ECANCELED))
-		ath10k_err(ar, "failed to get pending recv messages: %d\n",
-			   ret);
+		ath10k_warn(ar, "failed to get pending recv messages: %d\n",
+			    ret);
 
 	if (atomic_read(&ar_sdio->stopping)) {
 		ath10k_warn(ar, "host is going to stop. Turning of RX\n");
@@ -534,10 +534,10 @@ static int ath10k_sdio_mbox_proc_err_intr(struct ath10k_sdio *ar_sdio)
 		ath10k_dbg(ar, ATH10K_DBG_SDIO, "error : wakeup\n");
 
 	if (MS(error_int_status, MBOX_ERROR_INT_STATUS_RX_UNDERFLOW))
-		ath10k_err(ar, "rx underflow\n");
+		ath10k_warn(ar, "rx underflow\n");
 
 	if (MS(error_int_status, MBOX_ERROR_INT_STATUS_TX_OVERFLOW))
-		ath10k_err(ar, "tx overflow\n");
+		ath10k_warn(ar, "tx overflow\n");
 
 	/* Clear the interrupt */
 	irq_data->irq_proc_reg.error_int_status &= ~error_int_status;
@@ -659,7 +659,7 @@ static int ath10k_sdio_mbox_proc_pending_irqs(struct ath10k_sdio *ar_sdio,
 				lookahead = le32_to_cpu(
 					rg->rx_lookahead[ATH10K_HTC_MAILBOX]);
 				if (!lookahead)
-					ath10k_err(ar, "lookahead is zero!\n");
+					ath10k_warn(ar, "lookahead is zero!\n");
 			}
 		}
 	}
@@ -996,7 +996,7 @@ static int ath10k_sdio_hif_disable_intrs(struct ath10k_sdio *ar_sdio)
 					  &regs.int_status_en, sizeof(regs),
 					  HIF_WR_SYNC_BYTE_INC);
 	if (ret) {
-		ath10k_err(ar_sdio->ar, "Unable to disable sdio interrupts\n");
+		ath10k_warn(ar_sdio->ar, "Unable to disable sdio interrupts\n");
 		goto err;
 	}
 
@@ -1024,7 +1024,7 @@ static int ath10k_sdio_hif_power_up(struct ath10k *ar)
 
 	ret = sdio_enable_func(func);
 	if (ret) {
-		ath10k_err(ar, "Unable to enable sdio func: %d)\n", ret);
+		ath10k_warn(ar, "Unable to enable sdio func: %d)\n", ret);
 		sdio_release_host(func);
 		goto err;
 	}
@@ -1147,9 +1147,9 @@ static int ath10k_sdio_hif_enable_intrs(struct ath10k_sdio *ar_sdio)
 					  &regs.int_status_en, sizeof(regs),
 					  HIF_WR_SYNC_BYTE_INC);
 	if (ret) {
-		ath10k_err(ar_sdio->ar,
-			   "failed to update interrupt ctl reg err: %d\n",
-			   ret);
+		ath10k_warn(ar_sdio->ar,
+			    "failed to update interrupt ctl reg err: %d\n",
+			    ret);
 		goto err;
 	}
 
@@ -1217,7 +1217,7 @@ static int ath10k_sdio_hif_start(struct ath10k *ar)
 	/* Register the isr */
 	ret =  sdio_claim_irq(ar_sdio->func, ath10k_sdio_irq_handler);
 	if (ret) {
-		ath10k_err(ar, "Failed to claim sdio irq: %d\n", ret);
+		ath10k_warn(ar, "Failed to claim sdio irq: %d\n", ret);
 		sdio_release_host(ar_sdio->func);
 		goto err;
 	}
@@ -1226,13 +1226,13 @@ static int ath10k_sdio_hif_start(struct ath10k *ar)
 
 	ret = ath10k_sdio_hif_enable_intrs(ar_sdio);
 	if (ret)
-		ath10k_err(ar, "Failed to enable sdio interrupts: %d\n", ret);
+		ath10k_warn(ar, "Failed to enable sdio interrupts: %d\n", ret);
 
 	addr = host_interest_item_address(HI_ITEM(hi_acs_flags));
 
 	ret = ath10k_sdio_hif_diag_read32(ar, addr, &val);
 	if (ret) {
-		ath10k_err(ar, "Unable to read diag mem: %d\n", ret);
+		ath10k_warn(ar, "Unable to read diag mem: %d\n", ret);
 		goto err;
 	}
 
@@ -1288,7 +1288,7 @@ static void ath10k_sdio_irq_disable(struct ath10k *ar)
 
 	ret = sdio_release_irq(ar_sdio->func);
 	if (ret)
-		ath10k_err(ar, "Failed to release sdio irq: %d\n", ret);
+		ath10k_warn(ar, "Failed to release sdio irq: %d\n", ret);
 
 	sdio_release_host(ar_sdio->func);
 }
@@ -1331,7 +1331,7 @@ static int ath10k_sdio_config(struct ath10k_sdio *ar_sdio)
 		CCCR_SDIO_DRIVER_STRENGTH_ENABLE_ADDR,
 		byte);
 	if (ret) {
-		ath10k_err(ar, "Failed to enable driver strengt\n");
+		ath10k_warn(ar, "Failed to enable driver strengt\n");
 		goto err;
 	}
 
@@ -1346,8 +1346,8 @@ static int ath10k_sdio_config(struct ath10k_sdio *ar_sdio)
 					      CCCR_SDIO_IRQ_MODE_REG_SDIO3,
 					      byte);
 	if (ret) {
-		ath10k_err(ar, "Failed to enable 4-bit async irq mode %d\n",
-			   ret);
+		ath10k_warn(ar, "Failed to enable 4-bit async irq mode %d\n",
+			    ret);
 		goto err;
 	}
 
@@ -1369,8 +1369,8 @@ static int ath10k_sdio_config(struct ath10k_sdio *ar_sdio)
 
 	ret = sdio_set_block_size(func, ar_sdio->mbox_info.block_size);
 	if (ret) {
-		ath10k_err(ar, "Set sdio block size %d failed: %d)\n",
-			   ar_sdio->mbox_info.block_size, ret);
+		ath10k_warn(ar, "Set sdio block size %d failed: %d)\n",
+			    ar_sdio->mbox_info.block_size, ret);
 		goto err;
 	}
 
@@ -1390,8 +1390,9 @@ static int ath10k_set_addrwin_reg(struct ath10k *ar, u32 reg_addr, u32 addr)
 					  4, HIF_WR_SYNC_BYTE_INC);
 
 	if (ret) {
-		ath10k_err(ar, "%s: failed to write 0x%x to window reg: 0x%X\n",
-			   __func__, addr, reg_addr);
+		ath10k_warn(ar,
+			    "%s: failed to write 0x%x to window reg: 0x%X\n",
+			    __func__, addr, reg_addr);
 		return ret;
 	}
 
@@ -1427,8 +1428,8 @@ static int ath10k_sdio_hif_diag_read(struct ath10k *ar, u32 address, void *buf,
 					  (u8 *)buf, buf_len,
 					  HIF_RD_SYNC_BYTE_INC);
 	if (ret) {
-		ath10k_err(ar, "%s: failed to read from window data addr\n",
-			   __func__);
+		ath10k_warn(ar, "%s: failed to read from window data addr\n",
+			    __func__);
 		return ret;
 	}
 
@@ -1445,8 +1446,9 @@ static int ath10k_sdio_diag_write_mem(struct ath10k *ar, u32 address,
 					  (u8 *)data, nbytes,
 					  HIF_WR_SYNC_BYTE_INC);
 	if (ret) {
-		ath10k_err(ar, "%s: failed to write 0x%p to window data addr\n",
-			   __func__, data);
+		ath10k_warn(ar,
+			    "%s: failed to write 0x%p to window data addr\n",
+			    __func__, data);
 		return ret;
 	}
 
@@ -1478,9 +1480,9 @@ static int ath10k_sdio_bmi_credits(struct ath10k *ar)
 						  sizeof(cmd_credits),
 						  HIF_RD_SYNC_BYTE_INC);
 		if (ret) {
-			ath10k_err(ar,
-				   "Unable to decrement the command credit count register: %d\n",
-				   ret);
+			ath10k_warn(ar,
+				    "Unable to decrement the command credit count register: %d\n",
+				    ret);
 			goto err;
 		}
 
@@ -1491,7 +1493,7 @@ static int ath10k_sdio_bmi_credits(struct ath10k *ar)
 	}
 
 	if (!cmd_credits) {
-		ath10k_err(ar, "bmi communication timeout\n");
+		ath10k_warn(ar, "bmi communication timeout\n");
 		ret = -ETIMEDOUT;
 		goto err;
 	}
@@ -1515,7 +1517,7 @@ static int ath10k_sdio_bmi_get_rx_lookahead(struct ath10k *ar)
 						  sizeof(rx_word),
 						  HIF_RD_SYNC_BYTE_INC);
 		if (ret) {
-			ath10k_err(ar, "unable to read RX_LOOKAHEAD_VALID\n");
+			ath10k_warn(ar, "unable to read RX_LOOKAHEAD_VALID\n");
 			goto err;
 		}
 
@@ -1524,7 +1526,7 @@ static int ath10k_sdio_bmi_get_rx_lookahead(struct ath10k *ar)
 	}
 
 	if (!rx_word) {
-		ath10k_err(ar, "bmi_recv_buf FIFO empty\n");
+		ath10k_warn(ar, "bmi_recv_buf FIFO empty\n");
 		ret = -EINVAL;
 		goto err;
 	}
@@ -1552,8 +1554,8 @@ static int ath10k_sdio_hif_exchange_bmi_msg(struct ath10k *ar,
 		ret = ath10k_sdio_read_write_sync(ar, addr, req, req_len,
 						  HIF_WR_SYNC_BYTE_INC);
 		if (ret) {
-			ath10k_err(ar,
-				   "unable to send the bmi data to the device\n");
+			ath10k_warn(ar,
+				    "unable to send the bmi data to the device\n");
 			goto err;
 		}
 	}
@@ -1616,8 +1618,9 @@ static int ath10k_sdio_hif_exchange_bmi_msg(struct ath10k *ar,
 	ret = ath10k_sdio_read_write_sync(ar, addr, resp, *resp_len,
 					  HIF_RD_SYNC_BYTE_INC);
 	if (ret) {
-		ath10k_err(ar, "Unable to read the bmi data from the device: %d\n",
-			   ret);
+		ath10k_warn(ar,
+			    "Unable to read the bmi data from the device: %d\n",
+			    ret);
 		goto err;
 	}
 
@@ -1752,8 +1755,8 @@ static int ath10k_sdio_hif_map_service_to_pipe(struct ath10k *ar,
 			   ar_sdio->mbox_addr[eid], ar_sdio->mbox_size[eid]);
 		break;
 	default:
-		ath10k_err(ar, "Unsupported service ID: %x\n",
-			   service_id);
+		ath10k_warn(ar, "Unsupported service ID: %x\n",
+			    service_id);
 		ret = -EINVAL;
 		goto err;
 	}
@@ -1913,13 +1916,13 @@ static int ath10k_sdio_probe(struct sdio_func *func,
 
 	ret = ath10k_sdio_config(ar_sdio);
 	if (ret) {
-		ath10k_err(ar, "Failed to config sdio: %d\n", ret);
+		ath10k_warn(ar, "Failed to config sdio: %d\n", ret);
 		goto err;
 	}
 
 	ret = ath10k_core_register(ar, 0/*chip_id is not applicaple for SDIO*/);
 	if (ret) {
-		ath10k_err(ar, "failed to register driver core: %d\n", ret);
+		ath10k_warn(ar, "failed to register driver core: %d\n", ret);
 		goto err;
 	}
 
