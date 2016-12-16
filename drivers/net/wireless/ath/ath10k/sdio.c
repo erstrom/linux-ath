@@ -476,6 +476,7 @@ static int ath10k_sdio_mbox_proc_dbg_intr(struct ath10k_sdio *ar_sdio)
 	u32 dummy;
 	struct ath10k *ar = ar_sdio->ar;
 
+	/* TODO: Add firmware crash handling */
 	ath10k_warn(ar, "firmware crashed\n");
 
 	/* read counter to clear the interrupt, the debug error interrupt is
