@@ -61,6 +61,11 @@ static bool is_trailer_only_msg(struct ath10k_sdio_rx_data *pkt)
 	return trailer_only;
 }
 
+static inline enum ath10k_htc_ep_id pipe_id_to_eid(u8 pipe_id)
+{
+	return (enum ath10k_htc_ep_id)pipe_id;
+}
+
 static int ath10k_sdio_mbox_rx_process_packet(struct ath10k_sdio *ar_sdio,
 					      struct ath10k_sdio_rx_data *pkt,
 					      u32 *lookaheads,
@@ -82,7 +87,7 @@ static int ath10k_sdio_mbox_rx_process_packet(struct ath10k_sdio *ar_sdio,
 		trailer = skb->data + sizeof(struct ath10k_htc_hdr) +
 			  payload_len - htc_hdr->trailer_len;
 
-		eid = (enum ath10k_htc_ep_id)htc_hdr->eid;
+		eid = pipe_id_to_eid(htc_hdr->eid);
 
 		ret = ath10k_htc_process_trailer(htc,
 						 trailer,
@@ -727,11 +732,6 @@ out:
 static inline bool buf_needs_bounce(u8 *buf)
 {
 	return ((unsigned long)buf & 0x3) || !virt_addr_valid(buf);
-}
-
-static inline enum ath10k_htc_ep_id pipe_id_to_eid(u8 pipe_id)
-{
-	return (enum ath10k_htc_ep_id)pipe_id;
 }
 
 static void ath10k_sdio_set_mbox_info(struct ath10k_sdio *ar_sdio)
