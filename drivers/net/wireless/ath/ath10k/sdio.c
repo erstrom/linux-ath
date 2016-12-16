@@ -515,7 +515,8 @@ static int ath10k_sdio_mbox_proc_err_intr(struct ath10k_sdio *ar_sdio)
 
 	error_int_status = irq_data->irq_proc_reg.error_int_status & 0x0F;
 	if (!error_int_status) {
-		WARN_ON(1);
+		ath10k_warn(ar, "error interrupt status: %x\n",
+			    error_int_status);
 		ret = -EIO;
 		goto err;
 	}
@@ -545,10 +546,10 @@ static int ath10k_sdio_mbox_proc_err_intr(struct ath10k_sdio *ar_sdio)
 	ret = ath10k_sdio_read_write_sync(ar,
 					  MBOX_ERROR_INT_STATUS_ADDRESS,
 					  reg_buf, 4, HIF_WR_SYNC_BYTE_FIX);
-
-	WARN_ON(ret);
-	if (ret)
+	if (ret) {
+		ath10k_warn(ar, "Unable to write error int status address\n");
 		goto err;
+	}
 
 	return 0;
 err:
@@ -565,7 +566,7 @@ static int ath10k_sdio_mbox_proc_cpu_intr(struct ath10k_sdio *ar_sdio)
 	cpu_int_status = irq_data->irq_proc_reg.cpu_int_status &
 			 irq_data->irq_en_reg.cpu_int_status_en;
 	if (!cpu_int_status) {
-		WARN_ON(1);
+		ath10k_warn(ar, "CPU interrupt status is zero!\n");
 		ret = -EIO;
 		goto err;
 	}
@@ -590,9 +591,10 @@ static int ath10k_sdio_mbox_proc_cpu_intr(struct ath10k_sdio *ar_sdio)
 					  MBOX_CPU_INT_STATUS_ADDRESS,
 					  reg_buf, 4, HIF_WR_SYNC_BYTE_FIX);
 
-	WARN_ON(ret);
-	if (ret)
+	if (ret) {
+		ath10k_warn(ar, "Unable to write cpu int status address\n");
 		goto err;
+	}
 
 	return 0;
 err:
@@ -977,7 +979,8 @@ static void ath10k_sdio_irq_handler(struct sdio_func *func)
 	atomic_set(&ar_sdio->irq_handling, 0);
 	wake_up(&ar_sdio->irq_wq);
 
-	WARN_ON(ret && ret != -ECANCELED);
+	if (ret && ret != -ECANCELED)
+		ath10k_warn(ar_sdio->ar, "SDIO irq status: %x\n", ret);
 }
 
 static int ath10k_sdio_hif_disable_intrs(struct ath10k_sdio *ar_sdio)
