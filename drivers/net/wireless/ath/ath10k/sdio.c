@@ -516,7 +516,8 @@ static int ath10k_sdio_mbox_proc_err_intr(struct ath10k_sdio *ar_sdio)
 	error_int_status = irq_data->irq_proc_reg.error_int_status & 0x0F;
 	if (!error_int_status) {
 		WARN_ON(1);
-		return -EIO;
+		ret = -EIO;
+		goto err;
 	}
 
 	ath10k_dbg(ar, ATH10K_DBG_SDIO,
@@ -546,7 +547,11 @@ static int ath10k_sdio_mbox_proc_err_intr(struct ath10k_sdio *ar_sdio)
 					  reg_buf, 4, HIF_WR_SYNC_BYTE_FIX);
 
 	WARN_ON(ret);
+	if (ret)
+		goto err;
 
+	return 0;
+err:
 	return ret;
 }
 
@@ -561,7 +566,8 @@ static int ath10k_sdio_mbox_proc_cpu_intr(struct ath10k_sdio *ar_sdio)
 			 irq_data->irq_en_reg.cpu_int_status_en;
 	if (!cpu_int_status) {
 		WARN_ON(1);
-		return -EIO;
+		ret = -EIO;
+		goto err;
 	}
 
 	/* Clear the interrupt */
@@ -585,7 +591,11 @@ static int ath10k_sdio_mbox_proc_cpu_intr(struct ath10k_sdio *ar_sdio)
 					  reg_buf, 4, HIF_WR_SYNC_BYTE_FIX);
 
 	WARN_ON(ret);
+	if (ret)
+		goto err;
 
+	return 0;
+err:
 	return ret;
 }
 
@@ -841,7 +851,8 @@ static struct ath10k_sdio_bus_request
 
 	if (list_empty(&ar_sdio->bus_req_freeq)) {
 		spin_unlock_bh(&ar_sdio->lock);
-		return NULL;
+		bus_req = NULL;
+		goto out;
 	}
 
 	bus_req = list_first_entry(&ar_sdio->bus_req_freeq,
@@ -850,6 +861,7 @@ static struct ath10k_sdio_bus_request
 
 	spin_unlock_bh(&ar_sdio->lock);
 
+out:
 	return bus_req;
 }
 
@@ -873,8 +885,10 @@ static int ath10k_sdio_read_write_sync(struct ath10k *ar, u32 addr, u8 *buf,
 		len = round_down(len, ar_sdio->mbox_info.block_size);
 
 	if (buf_needs_bounce(buf)) {
-		if (!ar_sdio->dma_buffer)
-			return -ENOMEM;
+		if (!ar_sdio->dma_buffer) {
+			ret = -ENOMEM;
+			goto err;
+		}
 		/* FIXME: I am not sure if it is always correct to assume
 		 * that the SDIO irq is a "fake" irq and sleep is possible.
 		 * (this function will get called from
@@ -898,6 +912,8 @@ static int ath10k_sdio_read_write_sync(struct ath10k *ar, u32 addr, u8 *buf,
 	if (bounced)
 		mutex_unlock(&ar_sdio->dma_buffer_mutex);
 
+	return 0;
+err:
 	return ret;
 }
 
@@ -978,7 +994,7 @@ static int ath10k_sdio_hif_disable_intrs(struct ath10k_sdio *ar_sdio)
 					  HIF_WR_SYNC_BYTE_INC);
 	if (ret) {
 		ath10k_err(ar_sdio->ar, "Unable to disable sdio interrupts\n");
-		return ret;
+		goto err;
 	}
 
 	spin_lock_bh(&irq_data->lock);
@@ -986,6 +1002,8 @@ static int ath10k_sdio_hif_disable_intrs(struct ath10k_sdio *ar_sdio)
 	spin_unlock_bh(&irq_data->lock);
 
 	return 0;
+err:
+	return ret;
 }
 
 static int ath10k_sdio_hif_power_up(struct ath10k *ar)
@@ -995,7 +1013,7 @@ static int ath10k_sdio_hif_power_up(struct ath10k *ar)
 	struct sdio_func *func = ar_sdio->func;
 
 	if (!ar_sdio->is_disabled)
-		return 0;
+		goto out;
 
 	ath10k_dbg(ar, ATH10K_DBG_BOOT, "sdio power on\n");
 
@@ -1005,7 +1023,7 @@ static int ath10k_sdio_hif_power_up(struct ath10k *ar)
 	if (ret) {
 		ath10k_err(ar, "Unable to enable sdio func: %d)\n", ret);
 		sdio_release_host(func);
-		return ret;
+		goto err;
 	}
 
 	sdio_release_host(func);
@@ -1018,7 +1036,12 @@ static int ath10k_sdio_hif_power_up(struct ath10k *ar)
 	ar_sdio->is_disabled = false;
 
 	ret = ath10k_sdio_hif_disable_intrs(ar_sdio);
+	if (ret)
+		goto err;
 
+out:
+	return 0;
+err:
 	return ret;
 }
 
@@ -1028,7 +1051,7 @@ static void ath10k_sdio_hif_power_down(struct ath10k *ar)
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 
 	if (ar_sdio->is_disabled)
-		return;
+		goto out;
 
 	ath10k_dbg(ar, ATH10K_DBG_BOOT, "sdio power off\n");
 
@@ -1042,20 +1065,24 @@ static void ath10k_sdio_hif_power_down(struct ath10k *ar)
 			   "Unable to disable sdio: %d\n", ret);
 
 	ar_sdio->is_disabled = true;
+out:
+	return;
 }
 
 static int ath10k_sdio_hif_tx_sg(struct ath10k *ar, u8 pipe_id,
 				 struct ath10k_hif_sg_item *items, int n_items)
 {
-	int i;
+	int ret, i;
 	u32 address;
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct ath10k_sdio_bus_request *bus_req;
 
 	bus_req = ath10k_sdio_alloc_busreq(ar_sdio);
 
-	if (WARN_ON_ONCE(!bus_req))
-		return -ENOMEM;
+	if (WARN_ON_ONCE(!bus_req)) {
+		ret = -ENOMEM;
+		goto err;
+	}
 
 	for (i = 0; i < n_items; i++) {
 		bus_req->skb = items[i].transfer_context;
@@ -1076,6 +1103,8 @@ static int ath10k_sdio_hif_tx_sg(struct ath10k *ar, u8 pipe_id,
 	queue_work(ar_sdio->workqueue, &ar_sdio->wr_async_work);
 
 	return 0;
+err:
+	return ret;
 }
 
 static int ath10k_sdio_hif_enable_intrs(struct ath10k_sdio *ar_sdio)
@@ -1118,7 +1147,7 @@ static int ath10k_sdio_hif_enable_intrs(struct ath10k_sdio *ar_sdio)
 		ath10k_err(ar_sdio->ar,
 			   "failed to update interrupt ctl reg err: %d\n",
 			   ret);
-		return ret;
+		goto err;
 	}
 
 	spin_lock_bh(&irq_data->lock);
@@ -1126,6 +1155,8 @@ static int ath10k_sdio_hif_enable_intrs(struct ath10k_sdio *ar_sdio)
 	spin_unlock_bh(&irq_data->lock);
 
 	return 0;
+err:
+	return ret;
 }
 
 #define FIFO_TIMEOUT_AND_CHIP_CONTROL   0x00000868u
@@ -1143,7 +1174,7 @@ static int ath10k_sdio_hif_set_mbox_sleep(struct ath10k *ar, bool enable_sleep)
 	if (ret) {
 		ath10k_warn(ar, "Failed to read addr: %x, code: %d\n",
 			    FIFO_TIMEOUT_AND_CHIP_CONTROL, ret);
-		goto out;
+		goto err;
 	}
 
 	if (enable_sleep)
@@ -1154,8 +1185,11 @@ static int ath10k_sdio_hif_set_mbox_sleep(struct ath10k *ar, bool enable_sleep)
 	ret = ath10k_sdio_read_write_sync(ar, FIFO_TIMEOUT_AND_CHIP_CONTROL,
 					  (u8 *)&val, sizeof(val),
 					  HIF_WR_SYNC_BYTE_INC);
+	if (ret)
+		goto err;
 
-out:
+	return 0;
+err:
 	return ret;
 }
 
@@ -1167,7 +1201,7 @@ static int ath10k_sdio_hif_start(struct ath10k *ar)
 
 	ret = ath10k_sdio_hif_disable_intrs(ar_sdio);
 	if (ret)
-		goto out;
+		goto err;
 
 	/* eid 0 always uses the lower part of the extended mailbox address
 	 * space (ext_info[0].htc_ext_addr).
@@ -1182,7 +1216,7 @@ static int ath10k_sdio_hif_start(struct ath10k *ar)
 	if (ret) {
 		ath10k_err(ar, "Failed to claim sdio irq: %d\n", ret);
 		sdio_release_host(ar_sdio->func);
-		goto out;
+		goto err;
 	}
 
 	sdio_release_host(ar_sdio->func);
@@ -1196,7 +1230,7 @@ static int ath10k_sdio_hif_start(struct ath10k *ar)
 	ret = ath10k_sdio_hif_diag_read32(ar, addr, &val);
 	if (ret) {
 		ath10k_err(ar, "Unable to read diag mem: %d\n", ret);
-		goto out;
+		goto err;
 	}
 
 	if (val & HI_ACS_FLAGS_SDIO_SWAP_MAILBOX_FW_ACK) {
@@ -1208,16 +1242,17 @@ static int ath10k_sdio_hif_start(struct ath10k *ar)
 	/* Enable sleep and then disable it again */
 	ret = ath10k_sdio_hif_set_mbox_sleep(ar, true);
 	if (ret)
-		goto out;
+		goto err;
 
 	/* Wait for 20ms for the written value to take effect */
 	msleep(20);
 
 	ret = ath10k_sdio_hif_set_mbox_sleep(ar, false);
 	if (ret)
-		goto out;
+		goto err;
 
-out:
+	return 0;
+err:
 	return ret;
 }
 
@@ -1294,7 +1329,7 @@ static int ath10k_sdio_config(struct ath10k_sdio *ar_sdio)
 		byte);
 	if (ret) {
 		ath10k_err(ar, "Failed to enable driver strengt\n");
-		goto out;
+		goto err;
 	}
 
 	byte = 0;
@@ -1310,7 +1345,7 @@ static int ath10k_sdio_config(struct ath10k_sdio *ar_sdio)
 	if (ret) {
 		ath10k_err(ar, "Failed to enable 4-bit async irq mode %d\n",
 			   ret);
-		goto out;
+		goto err;
 	}
 
 	byte = 0;
@@ -1333,12 +1368,13 @@ static int ath10k_sdio_config(struct ath10k_sdio *ar_sdio)
 	if (ret) {
 		ath10k_err(ar, "Set sdio block size %d failed: %d)\n",
 			   ar_sdio->mbox_info.block_size, ret);
-		goto out;
+		goto err;
 	}
 
-out:
 	sdio_release_host(func);
-
+	return 0;
+err:
+	sdio_release_host(func);
 	return ret;
 }
 
@@ -1442,7 +1478,7 @@ static int ath10k_sdio_bmi_credits(struct ath10k *ar)
 			ath10k_err(ar,
 				   "Unable to decrement the command credit count register: %d\n",
 				   ret);
-			return ret;
+			goto err;
 		}
 
 		/* The counter is only 8 bits.
@@ -1453,10 +1489,13 @@ static int ath10k_sdio_bmi_credits(struct ath10k *ar)
 
 	if (!cmd_credits) {
 		ath10k_err(ar, "bmi communication timeout\n");
-		return -ETIMEDOUT;
+		ret = -ETIMEDOUT;
+		goto err;
 	}
 
 	return 0;
+err:
+	return ret;
 }
 
 static int ath10k_sdio_bmi_get_rx_lookahead(struct ath10k *ar)
@@ -1474,7 +1513,7 @@ static int ath10k_sdio_bmi_get_rx_lookahead(struct ath10k *ar)
 						  HIF_RD_SYNC_BYTE_INC);
 		if (ret) {
 			ath10k_err(ar, "unable to read RX_LOOKAHEAD_VALID\n");
-			return ret;
+			goto err;
 		}
 
 		 /* all we really want is one bit */
@@ -1483,10 +1522,13 @@ static int ath10k_sdio_bmi_get_rx_lookahead(struct ath10k *ar)
 
 	if (!rx_word) {
 		ath10k_err(ar, "bmi_recv_buf FIFO empty\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto err;
 	}
 
 	return 0;
+err:
+	return ret;
 }
 
 static int ath10k_sdio_hif_exchange_bmi_msg(struct ath10k *ar,
