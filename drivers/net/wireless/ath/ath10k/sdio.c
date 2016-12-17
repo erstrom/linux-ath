@@ -1861,6 +1861,12 @@ static int ath10k_sdio_probe(struct sdio_func *func,
 	int i;
 	enum ath10k_hw_rev hw_rev;
 
+	/* Assumption: All SDIO based chipsets (so far) are QCA6174 based.
+	 * If there will be newer chipsets that does not use the hw reg
+	 * setup as defined in qca6174_regs and qca6174_values, this
+	 * assumption is no longer valid and hw_rev must be setup differently
+	 * depending on chipset.
+	 */
 	hw_rev = ATH10K_HW_QCA6174;
 
 	ar = ath10k_core_create(sizeof(*ar_sdio), &func->dev, ATH10K_BUS_SDIO,
