@@ -1860,6 +1860,7 @@ static int ath10k_sdio_probe(struct sdio_func *func,
 	struct ath10k *ar;
 	int i;
 	enum ath10k_hw_rev hw_rev;
+	u32 chip_id;
 
 	/* Assumption: All SDIO based chipsets (so far) are QCA6174 based.
 	 * If there will be newer chipsets that does not use the hw reg
@@ -1927,7 +1928,9 @@ static int ath10k_sdio_probe(struct sdio_func *func,
 		goto err;
 	}
 
-	ret = ath10k_core_register(ar, 0/*chip_id is not applicaple for SDIO*/);
+	/* TODO: don't know yet how to get chip_id with SDIO */
+	chip_id = 0;
+	ret = ath10k_core_register(ar, chip_id);
 	if (ret) {
 		ath10k_warn(ar, "failed to register driver core: %d\n", ret);
 		goto err;
