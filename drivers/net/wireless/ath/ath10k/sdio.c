@@ -720,7 +720,8 @@ out:
 	 */
 
 	ath10k_dbg(ar, ATH10K_DBG_SDIO,
-		   "%s: (done:%d, status=%d)\n", __func__, *done, ret);
+		   "sdio pending irqs done %d status %d",
+		   *done, ret);
 
 	return ret;
 }
