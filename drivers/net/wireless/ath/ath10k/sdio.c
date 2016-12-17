@@ -1066,8 +1066,7 @@ static void ath10k_sdio_hif_power_down(struct ath10k *ar)
 	sdio_release_host(ar_sdio->func);
 
 	if (ret)
-		ath10k_dbg(ar, ATH10K_DBG_BOOT,
-			   "Unable to disable sdio: %d\n", ret);
+		ath10k_warn(ar, "Unable to disable sdio: %d\n", ret);
 
 	ar_sdio->is_disabled = true;
 out:
