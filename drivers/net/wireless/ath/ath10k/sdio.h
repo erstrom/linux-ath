@@ -20,10 +20,10 @@
 #define _SDIO_H_
 
 #define ATH10K_HIF_MBOX_BLOCK_SIZE              256
-#define ATH10K_MANUFACTURER_ID_AR6005_BASE      0x500
 
-#define ATH10K_MANUFACTURER_ID_REV_MASK         0x00FF
-#define ATH10K_MANUFACTURER_CODE                0x271 /* Atheros */
+#define QCA_MANUFACTURER_ID_AR6005_BASE         0x500
+#define QCA_MANUFACTURER_ID_REV_MASK            0x00FF
+#define QCA_MANUFACTURER_CODE                   0x271 /* Qualcomm/Atheros */
 
 #define ATH10K_HIF_DMA_BUFFER_SIZE              (32 * 1024)
 #define ATH10K_SDIO_MAX_BUFFER_SIZE             4096 /*Unsure of this constant*/

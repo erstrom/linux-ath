@@ -749,7 +749,7 @@ static void ath10k_sdio_set_mbox_info(struct ath10k_sdio *ar_sdio)
 
 	mbox_info->ext_info[0].htc_ext_addr = ATH10K_HIF_MBOX0_EXT_BASE_ADDR;
 
-	if ((device & ATH10K_MANUFACTURER_ID_REV_MASK) < 4)
+	if ((device & QCA_MANUFACTURER_ID_REV_MASK) < 4)
 		mbox_info->ext_info[0].htc_ext_sz = ATH10K_HIF_MBOX0_EXT_WIDTH;
 	else
 		/* from rome 2.0(0x504), the width has been extended
@@ -1967,8 +1967,8 @@ static void ath10k_sdio_remove(struct sdio_func *func)
 }
 
 static const struct sdio_device_id ath10k_sdio_devices[] = {
-	{SDIO_DEVICE(ATH10K_MANUFACTURER_CODE,
-		     (ATH10K_MANUFACTURER_ID_AR6005_BASE | 0xA))},
+	{SDIO_DEVICE(QCA_MANUFACTURER_CODE,
+		     (QCA_MANUFACTURER_ID_AR6005_BASE | 0xA))},
 	{},
 };
 
