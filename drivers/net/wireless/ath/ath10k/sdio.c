@@ -66,13 +66,13 @@ static inline enum ath10k_htc_ep_id pipe_id_to_eid(u8 pipe_id)
 	return (enum ath10k_htc_ep_id)pipe_id;
 }
 
-static int ath10k_sdio_mbox_rx_process_packet(struct ath10k_sdio *ar_sdio,
+static int ath10k_sdio_mbox_rx_process_packet(struct ath10k *ar,
 					      struct ath10k_sdio_rx_data *pkt,
 					      u32 *lookaheads,
 					      int *n_lookaheads)
 {
 	int ret;
-	struct ath10k_htc *htc = &ar_sdio->ar->htc;
+	struct ath10k_htc *htc = &ar->htc;
 	struct sk_buff *skb = pkt->skb;
 	struct ath10k_htc_hdr *htc_hdr = (struct ath10k_htc_hdr *)skb->data;
 	bool trailer_present = htc_hdr->flags & ATH10K_HTC_FLAG_TRAILER_PRESENT;
@@ -137,12 +137,12 @@ static inline int ath10k_sdio_mbox_alloc_rx_pkt(struct ath10k_sdio_rx_data *pkt,
 	return 0;
 }
 
-static int ath10k_sdio_mbox_rx_process_packets(struct ath10k_sdio *ar_sdio,
+static int ath10k_sdio_mbox_rx_process_packets(struct ath10k *ar,
 					       u32 lookaheads[],
 					       int *n_lookahead)
 {
 	int ret, i;
-	struct ath10k *ar = ar_sdio->ar;
+	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct ath10k_htc *htc = &ar->htc;
 	struct ath10k_sdio_rx_data *pkt;
 
@@ -179,7 +179,7 @@ static int ath10k_sdio_mbox_rx_process_packets(struct ath10k_sdio *ar_sdio,
 			n_lookahead_local = NULL;
 		}
 
-		ret = ath10k_sdio_mbox_rx_process_packet(ar_sdio,
+		ret = ath10k_sdio_mbox_rx_process_packet(ar,
 							 pkt,
 							 lookaheads_local,
 							 n_lookahead_local);
@@ -247,11 +247,11 @@ err:
 	return ret;
 }
 
-static int ath10k_sdio_mbox_rx_alloc(struct ath10k_sdio *ar_sdio,
+static int ath10k_sdio_mbox_rx_alloc(struct ath10k *ar,
 				     u32 lookaheads[], int n_lookaheads)
 {
 	int ret, i;
-	struct ath10k *ar = ar_sdio->ar;
+	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 
 	if (n_lookaheads > ATH10K_SDIO_MAX_RX_MSGS) {
 		ath10k_warn(ar,
@@ -332,11 +332,11 @@ err:
 	return ret;
 }
 
-static int ath10k_sdio_mbox_rx_packet(struct ath10k_sdio *ar_sdio,
+static int ath10k_sdio_mbox_rx_packet(struct ath10k *ar,
 				      struct ath10k_sdio_rx_data *pkt)
 {
 	int ret;
-	struct ath10k *ar = ar_sdio->ar;
+	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct sk_buff *skb = pkt->skb;
 
 	ret = ath10k_sdio_read_write_sync(ar,
@@ -351,12 +351,13 @@ static int ath10k_sdio_mbox_rx_packet(struct ath10k_sdio *ar_sdio,
 	return ret;
 }
 
-static int ath10k_sdio_mbox_rx_fetch(struct ath10k_sdio *ar_sdio)
+static int ath10k_sdio_mbox_rx_fetch(struct ath10k *ar)
 {
 	int ret, i;
+	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 
 	for (i = 0; i < ar_sdio->n_rx_pkts; i++) {
-		ret = ath10k_sdio_mbox_rx_packet(ar_sdio,
+		ret = ath10k_sdio_mbox_rx_packet(ar,
 						 &ar_sdio->rx_pkts[i]);
 		if (ret)
 			goto err;
@@ -374,10 +375,11 @@ err:
 /* Disable packet reception (used in case the host runs out of buffers)
  * using the interrupt enable registers through the host I/F
  */
-static int ath10k_sdio_hif_rx_control(struct ath10k_sdio *ar_sdio,
+static int ath10k_sdio_hif_rx_control(struct ath10k *ar,
 				      bool enable_rx)
 {
 	int ret;
+	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct ath10k_sdio_irq_enable_reg regs;
 	struct ath10k_sdio_irq_data *irq_data = &ar_sdio->irq_data;
 
@@ -397,7 +399,7 @@ static int ath10k_sdio_hif_rx_control(struct ath10k_sdio *ar_sdio,
 
 	spin_unlock_bh(&irq_data->lock);
 
-	ret = ath10k_sdio_read_write_sync(ar_sdio->ar,
+	ret = ath10k_sdio_read_write_sync(ar,
 					  MBOX_INT_STATUS_ENABLE_ADDRESS,
 					  &regs.int_status_en, sizeof(regs),
 					  HIF_WR_SYNC_BYTE_INC);
@@ -405,11 +407,11 @@ static int ath10k_sdio_hif_rx_control(struct ath10k_sdio *ar_sdio,
 	return ret;
 }
 
-static int ath10k_sdio_mbox_rxmsg_pending_handler(struct ath10k_sdio *ar_sdio,
+static int ath10k_sdio_mbox_rxmsg_pending_handler(struct ath10k *ar,
 						  u32 msg_lookahead, bool *done)
 {
 	int ret;
-	struct ath10k *ar = ar_sdio->ar;
+	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	u32 lookaheads[ATH10K_SDIO_MAX_RX_MSGS];
 	int n_lookaheads = 1;
 
@@ -424,7 +426,7 @@ static int ath10k_sdio_mbox_rxmsg_pending_handler(struct ath10k_sdio *ar_sdio,
 		/* Try to allocate as many HTC RX packets indicated by
 		 * n_lookaheads.
 		 */
-		ret = ath10k_sdio_mbox_rx_alloc(ar_sdio, lookaheads,
+		ret = ath10k_sdio_mbox_rx_alloc(ar, lookaheads,
 						n_lookaheads);
 		if (ret)
 			break;
@@ -435,14 +437,14 @@ static int ath10k_sdio_mbox_rxmsg_pending_handler(struct ath10k_sdio *ar_sdio,
 			 */
 			*done = false;
 
-		ret = ath10k_sdio_mbox_rx_fetch(ar_sdio);
+		ret = ath10k_sdio_mbox_rx_fetch(ar);
 
 		/* Process fetched packets. This will potentially update
 		 * n_lookaheads depending on if the packets contain lookahead
 		 * reports.
 		 */
 		n_lookaheads = 0;
-		ret = ath10k_sdio_mbox_rx_process_packets(ar_sdio,
+		ret = ath10k_sdio_mbox_rx_process_packets(ar,
 							  lookaheads,
 							  &n_lookaheads);
 
@@ -464,17 +466,16 @@ static int ath10k_sdio_mbox_rxmsg_pending_handler(struct ath10k_sdio *ar_sdio,
 
 	if (atomic_read(&ar_sdio->stopping)) {
 		ath10k_warn(ar, "host is going to stop. Turning of RX\n");
-		ath10k_sdio_hif_rx_control(ar_sdio, false);
+		ath10k_sdio_hif_rx_control(ar, false);
 	}
 
 	return ret;
 }
 
-static int ath10k_sdio_mbox_proc_dbg_intr(struct ath10k_sdio *ar_sdio)
+static int ath10k_sdio_mbox_proc_dbg_intr(struct ath10k *ar)
 {
 	int ret;
 	u32 dummy;
-	struct ath10k *ar = ar_sdio->ar;
 
 	/* TODO: Add firmware crash handling */
 	ath10k_warn(ar, "firmware crashed\n");
@@ -491,9 +492,10 @@ static int ath10k_sdio_mbox_proc_dbg_intr(struct ath10k_sdio *ar_sdio)
 	return ret;
 }
 
-static int ath10k_sdio_mbox_proc_counter_intr(struct ath10k_sdio *ar_sdio)
+static int ath10k_sdio_mbox_proc_counter_intr(struct ath10k *ar)
 {
 	u8 counter_int_status;
+	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct ath10k_sdio_irq_data *irq_data = &ar_sdio->irq_data;
 
 	counter_int_status = irq_data->irq_proc_reg.counter_int_status &
@@ -504,18 +506,18 @@ static int ath10k_sdio_mbox_proc_counter_intr(struct ath10k_sdio *ar_sdio)
 	 * the debug assertion counter interrupt.
 	 */
 	if (counter_int_status & ATH10K_SDIO_TARGET_DEBUG_INTR_MASK)
-		return ath10k_sdio_mbox_proc_dbg_intr(ar_sdio);
+		return ath10k_sdio_mbox_proc_dbg_intr(ar);
 
 	return 0;
 }
 
-static int ath10k_sdio_mbox_proc_err_intr(struct ath10k_sdio *ar_sdio)
+static int ath10k_sdio_mbox_proc_err_intr(struct ath10k *ar)
 {
 	int ret;
 	u8 error_int_status;
 	u8 reg_buf[4];
+	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct ath10k_sdio_irq_data *irq_data = &ar_sdio->irq_data;
-	struct ath10k *ar = ar_sdio->ar;
 
 	ath10k_dbg(ar, ATH10K_DBG_SDIO, "error interrupt\n");
 
@@ -562,11 +564,11 @@ err:
 	return ret;
 }
 
-static int ath10k_sdio_mbox_proc_cpu_intr(struct ath10k_sdio *ar_sdio)
+static int ath10k_sdio_mbox_proc_cpu_intr(struct ath10k *ar)
 {
 	int ret;
+	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct ath10k_sdio_irq_data *irq_data = &ar_sdio->irq_data;
-	struct ath10k *ar = ar_sdio->ar;
 	u8 cpu_int_status, reg_buf[4];
 
 	cpu_int_status = irq_data->irq_proc_reg.cpu_int_status &
@@ -608,12 +610,12 @@ err:
 }
 
 /* process pending interrupts synchronously */
-static int ath10k_sdio_mbox_proc_pending_irqs(struct ath10k_sdio *ar_sdio,
+static int ath10k_sdio_mbox_proc_pending_irqs(struct ath10k *ar,
 					      bool *done)
 {
 	int ret;
+	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct ath10k_sdio_irq_data *irq_data = &ar_sdio->irq_data;
-	struct ath10k *ar = ar_sdio->ar;
 	struct ath10k_sdio_irq_proc_registers *rg;
 	u8 host_int_status = 0;
 	u32 lookahead = 0;
@@ -675,7 +677,7 @@ static int ath10k_sdio_mbox_proc_pending_irqs(struct ath10k_sdio *ar_sdio,
 			   "pending mailbox msg, lookahead: 0x%08X\n",
 			   lookahead);
 
-		ret = ath10k_sdio_mbox_rxmsg_pending_handler(ar_sdio,
+		ret = ath10k_sdio_mbox_rxmsg_pending_handler(ar,
 							     lookahead,
 							     done);
 		if (ret)
@@ -689,21 +691,21 @@ static int ath10k_sdio_mbox_proc_pending_irqs(struct ath10k_sdio *ar_sdio,
 
 	if (MS(host_int_status, MBOX_HOST_INT_STATUS_CPU)) {
 		/* CPU Interrupt */
-		ret = ath10k_sdio_mbox_proc_cpu_intr(ar_sdio);
+		ret = ath10k_sdio_mbox_proc_cpu_intr(ar);
 		if (ret)
 			goto out;
 	}
 
 	if (MS(host_int_status, MBOX_HOST_INT_STATUS_ERROR)) {
 		/* Error Interrupt */
-		ret = ath10k_sdio_mbox_proc_err_intr(ar_sdio);
+		ret = ath10k_sdio_mbox_proc_err_intr(ar);
 		if (ret)
 			goto out;
 	}
 
 	if (MS(host_int_status, MBOX_HOST_INT_STATUS_COUNTER))
 		/* Counter Interrupt */
-		ret = ath10k_sdio_mbox_proc_counter_intr(ar_sdio);
+		ret = ath10k_sdio_mbox_proc_counter_intr(ar);
 
 	ret = 0;
 out:
@@ -736,8 +738,9 @@ static inline bool buf_needs_bounce(u8 *buf)
 	return ((unsigned long)buf & 0x3) || !virt_addr_valid(buf);
 }
 
-static void ath10k_sdio_set_mbox_info(struct ath10k_sdio *ar_sdio)
+static void ath10k_sdio_set_mbox_info(struct ath10k *ar)
 {
+	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct ath10k_mbox_info *mbox_info = &ar_sdio->mbox_info;
 	u16 device = ar_sdio->func->device;
 
@@ -813,12 +816,12 @@ static int ath10k_sdio_func0_cmd52_rd_byte(struct mmc_card *card,
 	return ret;
 }
 
-static int ath10k_sdio_io(struct ath10k_sdio *ar_sdio, u32 request, u32 addr,
+static int ath10k_sdio_io(struct ath10k *ar, u32 request, u32 addr,
 			  u8 *buf, u32 len)
 {
 	int ret;
+	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct sdio_func *func = ar_sdio->func;
-	struct ath10k *ar = ar_sdio->ar;
 
 	sdio_claim_host(func);
 
@@ -847,8 +850,9 @@ static int ath10k_sdio_io(struct ath10k_sdio *ar_sdio, u32 request, u32 addr,
 }
 
 static struct ath10k_sdio_bus_request
-*ath10k_sdio_alloc_busreq(struct ath10k_sdio *ar_sdio)
+*ath10k_sdio_alloc_busreq(struct ath10k *ar)
 {
+	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct ath10k_sdio_bus_request *bus_req;
 
 	spin_lock_bh(&ar_sdio->lock);
@@ -869,9 +873,11 @@ out:
 	return bus_req;
 }
 
-static void ath10k_sdio_free_bus_req(struct ath10k_sdio *ar_sdio,
+static void ath10k_sdio_free_bus_req(struct ath10k *ar,
 				     struct ath10k_sdio_bus_request *bus_req)
 {
+	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
+
 	spin_lock_bh(&ar_sdio->lock);
 	list_add_tail(&bus_req->list, &ar_sdio->bus_req_freeq);
 	spin_unlock_bh(&ar_sdio->lock);
@@ -909,7 +915,7 @@ static int ath10k_sdio_read_write_sync(struct ath10k *ar, u32 addr, u8 *buf,
 		tbuf = buf;
 	}
 
-	ret = ath10k_sdio_io(ar_sdio, request, addr, tbuf, len);
+	ret = ath10k_sdio_io(ar, request, addr, tbuf, len);
 	if ((request & HIF_READ) && bounced)
 		memcpy(buf, tbuf, len);
 
@@ -921,34 +927,37 @@ err:
 	return ret;
 }
 
-static void __ath10k_sdio_write_async(struct ath10k_sdio *ar_sdio,
+static void __ath10k_sdio_write_async(struct ath10k *ar,
 				      struct ath10k_sdio_bus_request *req)
 {
 	int ret;
+	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct ath10k_htc_ep *ep;
 	struct sk_buff *skb;
 
 	skb = req->skb;
-	ret = ath10k_sdio_read_write_sync(ar_sdio->ar, req->address,
+	ret = ath10k_sdio_read_write_sync(ar, req->address,
 					  skb->data, req->len,
 					  req->request);
 	ep = &ar_sdio->ar->htc.endpoint[req->eid];
 	ath10k_htc_notify_tx_completion(ep, skb);
-	ath10k_sdio_free_bus_req(ar_sdio, req);
+	ath10k_sdio_free_bus_req(ar, req);
 }
 
 static void ath10k_sdio_write_async_work(struct work_struct *work)
 {
 	struct ath10k_sdio *ar_sdio;
+	struct ath10k *ar;
 	struct ath10k_sdio_bus_request *req, *tmp_req;
 
 	ar_sdio = container_of(work, struct ath10k_sdio, wr_async_work);
+	ar = ar_sdio->ar;
 
 	spin_lock_bh(&ar_sdio->wr_async_lock);
 	list_for_each_entry_safe(req, tmp_req, &ar_sdio->wr_asyncq, list) {
 		list_del(&req->list);
 		spin_unlock_bh(&ar_sdio->wr_async_lock);
-		__ath10k_sdio_write_async(ar_sdio, req);
+		__ath10k_sdio_write_async(ar, req);
 		spin_lock_bh(&ar_sdio->wr_async_lock);
 	}
 	spin_unlock_bh(&ar_sdio->wr_async_lock);
@@ -959,9 +968,11 @@ static void ath10k_sdio_irq_handler(struct sdio_func *func)
 	int ret;
 	unsigned long timeout;
 	struct ath10k_sdio *ar_sdio;
+	struct ath10k *ar;
 	bool done = false;
 
 	ar_sdio = sdio_get_drvdata(func);
+	ar = ar_sdio->ar;
 	atomic_set(&ar_sdio->irq_handling, 1);
 
 	/* Release the host during interrupts so we can pick it back up when
@@ -971,7 +982,7 @@ static void ath10k_sdio_irq_handler(struct sdio_func *func)
 
 	timeout = jiffies + ATH10K_SDIO_HIF_COMMUNICATION_TIMEOUT_HZ;
 	while (time_before(jiffies, timeout) && !done) {
-		ret = ath10k_sdio_mbox_proc_pending_irqs(ar_sdio, &done);
+		ret = ath10k_sdio_mbox_proc_pending_irqs(ar, &done);
 		if (ret)
 			break;
 	}
@@ -982,23 +993,24 @@ static void ath10k_sdio_irq_handler(struct sdio_func *func)
 	wake_up(&ar_sdio->irq_wq);
 
 	if (ret && ret != -ECANCELED)
-		ath10k_warn(ar_sdio->ar, "SDIO irq status: %x\n", ret);
+		ath10k_warn(ar, "SDIO irq status: %x\n", ret);
 }
 
-static int ath10k_sdio_hif_disable_intrs(struct ath10k_sdio *ar_sdio)
+static int ath10k_sdio_hif_disable_intrs(struct ath10k *ar)
 {
 	int ret;
 	struct ath10k_sdio_irq_enable_reg regs;
+	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct ath10k_sdio_irq_data *irq_data = &ar_sdio->irq_data;
 
 	memset(&regs, 0, sizeof(regs));
 
-	ret = ath10k_sdio_read_write_sync(ar_sdio->ar,
+	ret = ath10k_sdio_read_write_sync(ar,
 					  MBOX_INT_STATUS_ENABLE_ADDRESS,
 					  &regs.int_status_en, sizeof(regs),
 					  HIF_WR_SYNC_BYTE_INC);
 	if (ret) {
-		ath10k_warn(ar_sdio->ar, "Unable to disable sdio interrupts\n");
+		ath10k_warn(ar, "Unable to disable sdio interrupts\n");
 		goto err;
 	}
 
@@ -1040,7 +1052,7 @@ static int ath10k_sdio_hif_power_up(struct ath10k *ar)
 
 	ar_sdio->is_disabled = false;
 
-	ret = ath10k_sdio_hif_disable_intrs(ar_sdio);
+	ret = ath10k_sdio_hif_disable_intrs(ar);
 	if (ret)
 		goto err;
 
@@ -1078,10 +1090,10 @@ static int ath10k_sdio_hif_tx_sg(struct ath10k *ar, u8 pipe_id,
 {
 	int ret, i;
 	u32 address;
-	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct ath10k_sdio_bus_request *bus_req;
+	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 
-	bus_req = ath10k_sdio_alloc_busreq(ar_sdio);
+	bus_req = ath10k_sdio_alloc_busreq(ar);
 
 	if (WARN_ON_ONCE(!bus_req)) {
 		ret = -ENOMEM;
@@ -1111,10 +1123,11 @@ err:
 	return ret;
 }
 
-static int ath10k_sdio_hif_enable_intrs(struct ath10k_sdio *ar_sdio)
+static int ath10k_sdio_hif_enable_intrs(struct ath10k *ar)
 {
 	int ret;
 	struct ath10k_sdio_irq_enable_reg regs;
+	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct ath10k_sdio_irq_data *irq_data = &ar_sdio->irq_data;
 
 	memset(&regs, 0, sizeof(regs));
@@ -1143,12 +1156,12 @@ static int ath10k_sdio_hif_enable_intrs(struct ath10k_sdio *ar_sdio)
 	regs.cntr_int_status_en = SM(ATH10K_SDIO_TARGET_DEBUG_INTR_MASK,
 				     MBOX_COUNTER_INT_STATUS_ENABLE_BIT);
 
-	ret = ath10k_sdio_read_write_sync(ar_sdio->ar,
+	ret = ath10k_sdio_read_write_sync(ar,
 					  MBOX_INT_STATUS_ENABLE_ADDRESS,
 					  &regs.int_status_en, sizeof(regs),
 					  HIF_WR_SYNC_BYTE_INC);
 	if (ret) {
-		ath10k_warn(ar_sdio->ar,
+		ath10k_warn(ar,
 			    "failed to update interrupt ctl reg err: %d\n",
 			    ret);
 		goto err;
@@ -1200,10 +1213,10 @@ err:
 static int ath10k_sdio_hif_start(struct ath10k *ar)
 {
 	int ret;
-	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	u32 addr, val;
+	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 
-	ret = ath10k_sdio_hif_disable_intrs(ar_sdio);
+	ret = ath10k_sdio_hif_disable_intrs(ar);
 	if (ret)
 		goto err;
 
@@ -1225,7 +1238,7 @@ static int ath10k_sdio_hif_start(struct ath10k *ar)
 
 	sdio_release_host(ar_sdio->func);
 
-	ret = ath10k_sdio_hif_enable_intrs(ar_sdio);
+	ret = ath10k_sdio_hif_enable_intrs(ar);
 	if (ret)
 		ath10k_warn(ar, "Failed to enable sdio interrupts: %d\n", ret);
 
@@ -1294,12 +1307,12 @@ static void ath10k_sdio_irq_disable(struct ath10k *ar)
 	sdio_release_host(ar_sdio->func);
 }
 
-static int ath10k_sdio_config(struct ath10k_sdio *ar_sdio)
+static int ath10k_sdio_config(struct ath10k *ar)
 {
 	int ret;
-	struct ath10k *ar = ar_sdio->ar;
-	struct sdio_func *func = ar_sdio->func;
 	unsigned char byte, asyncintdelay = 2;
+	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
+	struct sdio_func *func = ar_sdio->func;
 
 	ath10k_dbg(ar, ATH10K_DBG_BOOT, "SDIO configuration\n");
 
@@ -1633,8 +1646,8 @@ err:
 
 static void ath10k_sdio_hif_stop(struct ath10k *ar)
 {
-	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct ath10k_sdio_bus_request *req, *tmp_req;
+	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 
 	ath10k_sdio_irq_disable(ar);
 
@@ -1649,7 +1662,7 @@ static void ath10k_sdio_hif_stop(struct ath10k *ar)
 
 		ep = &ar->htc.endpoint[req->eid];
 		ath10k_htc_notify_tx_completion(ep, req->skb);
-		ath10k_sdio_free_bus_req(ar_sdio, req);
+		ath10k_sdio_free_bus_req(ar, req);
 	}
 
 	spin_unlock_bh(&ar_sdio->wr_async_lock);
@@ -1664,15 +1677,13 @@ static int ath10k_sdio_hif_suspend(struct ath10k *ar)
 
 static int ath10k_sdio_hif_resume(struct ath10k *ar)
 {
-	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
-
 	switch (ar->state) {
 	case ATH10K_STATE_OFF:
 		ath10k_dbg(ar, ATH10K_DBG_SDIO,
 			   "sdio resume configuring sdio\n");
 
 		/* need to set sdio settings after power is cut from sdio */
-		ath10k_sdio_config(ar_sdio);
+		ath10k_sdio_config(ar);
 		break;
 
 	case ATH10K_STATE_ON:
@@ -1691,9 +1702,9 @@ static int ath10k_sdio_hif_map_service_to_pipe(struct ath10k *ar,
 	int ret, i;
 	bool ep_found = false;
 	enum ath10k_htc_ep_id eid;
+	u32 htt_addr, wmi_addr, htt_mbox_size, wmi_mbox_size;
 	struct ath10k_htc *htc = &ar->htc;
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
-	u32 htt_addr, wmi_addr, htt_mbox_size, wmi_mbox_size;
 
 	/* For sdio, we are interested in the mapping between eid
 	 * and pipeid rather than service_id to pipe_id.
@@ -1914,15 +1925,15 @@ static int ath10k_sdio_probe(struct sdio_func *func,
 	init_waitqueue_head(&ar_sdio->irq_wq);
 
 	for (i = 0; i < ATH10K_SDIO_BUS_REQUEST_MAX_NUM; i++)
-		ath10k_sdio_free_bus_req(ar_sdio, &ar_sdio->bus_req[i]);
+		ath10k_sdio_free_bus_req(ar, &ar_sdio->bus_req[i]);
 
 	ar->dev_id = id->device;
 	ar->id.vendor = id->vendor;
 	ar->id.device = id->device;
 
-	ath10k_sdio_set_mbox_info(ar_sdio);
+	ath10k_sdio_set_mbox_info(ar);
 
-	ret = ath10k_sdio_config(ar_sdio);
+	ret = ath10k_sdio_config(ar);
 	if (ret) {
 		ath10k_warn(ar, "Failed to config sdio: %d\n", ret);
 		goto err;
@@ -1958,7 +1969,7 @@ static void ath10k_sdio_remove(struct sdio_func *func)
 		   "sdio removed func %d vendor 0x%x device 0x%x\n",
 		   func->num, func->vendor, func->device);
 
-	(void)ath10k_sdio_hif_disable_intrs(ar_sdio);
+	(void)ath10k_sdio_hif_disable_intrs(ar);
 	cancel_work_sync(&ar_sdio->wr_async_work);
 	ath10k_core_unregister(ar);
 	ath10k_core_destroy(ar);
