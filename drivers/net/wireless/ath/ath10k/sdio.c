@@ -631,20 +631,80 @@ out:
 	return ret;
 }
 
-/* process pending interrupts synchronously */
-static int ath10k_sdio_mbox_proc_pending_irqs(struct ath10k *ar,
-					      bool *done)
+static int ath10k_sdio_mbox_read_int_status(struct ath10k *ar,
+					    u8 *host_int_status,
+					    u32 *lookahead)
 {
 	int ret;
-	u8 htc_mbox, host_int_status = 0;
-	u32 lookahead = 0;
+	u8 htc_mbox = FIELD_PREP(ATH10K_HTC_MAILBOX_MASK, 1);
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct ath10k_sdio_irq_data *irq_data = &ar_sdio->irq_data;
 	struct ath10k_sdio_irq_proc_registers *irq_proc_reg =
 		irq_data->irq_proc_reg;
 	struct ath10k_sdio_irq_enable_reg *irq_en_reg = irq_data->irq_en_reg;
 
-	htc_mbox = FIELD_PREP(ATH10K_HTC_MAILBOX_MASK, 1);
+	mutex_lock(&irq_data->mtx);
+
+	*lookahead = 0;
+	*host_int_status = 0;
+
+	/* int_status_en is supposed to be non zero, otherwise interrupts
+	 * shouldn't be enabled. There is however a short time frame during
+	 * initialization between the irq register and int_status_en init
+	 * where this can happen.
+	 * We silently ignore this condition.
+	 */
+	if (!irq_en_reg->int_status_en) {
+		ret = 0;
+		goto out;
+	}
+
+	/* Read the first sizeof(struct ath10k_irq_proc_registers)
+	 * bytes of the HTC register table. This
+	 * will yield us the value of different int status
+	 * registers and the lookahead registers.
+	 */
+	ret = ath10k_sdio_read_write_sync(ar,
+					  MBOX_HOST_INT_STATUS_ADDRESS,
+					  (u8 *)irq_proc_reg,
+					  sizeof(*irq_proc_reg),
+					  HIF_RD_SYNC_BYTE_INC);
+	if (ret)
+		goto out;
+
+	/* Update only those registers that are enabled */
+	*host_int_status = irq_proc_reg->host_int_status &
+			   irq_en_reg->int_status_en;
+
+	/* Look at mbox status */
+	if (!(*host_int_status & htc_mbox)) {
+		*lookahead = 0;
+		goto out;
+	}
+
+	/* Mask out pending mbox value, we use look ahead as
+	 * the real flag for mbox processing.
+	 */
+	*host_int_status &= ~htc_mbox;
+	if (irq_proc_reg->rx_lookahead_valid & htc_mbox) {
+		*lookahead = le32_to_cpu(
+			irq_proc_reg->rx_lookahead[ATH10K_HTC_MAILBOX]);
+		if (!*lookahead)
+			ath10k_warn(ar, "lookahead is zero!\n");
+	}
+
+out:
+	mutex_unlock(&irq_data->mtx);
+	return ret;
+}
+
+/* process pending interrupts synchronously */
+static int ath10k_sdio_mbox_proc_pending_irqs(struct ath10k *ar,
+					      bool *done)
+{
+	int ret;
+	u8 host_int_status;
+	u32 lookahead;
 
 	/* NOTE: HIF implementation guarantees that the context of this
 	 * call allows us to perform SYNCHRONOUS I/O, that is we can block,
@@ -652,49 +712,16 @@ static int ath10k_sdio_mbox_proc_pending_irqs(struct ath10k *ar,
 	 * contexts. This is a fully schedulable context.
 	 */
 
-	/* Process pending intr only when int_status_en is clear, it may
-	 * result in unnecessary bus transaction otherwise. Target may be
-	 * unresponsive at the time.
-	 */
-	mutex_lock(&irq_data->mtx);
-	if (irq_en_reg->int_status_en) {
-		/* Read the first sizeof(struct ath10k_irq_proc_registers)
-		 * bytes of the HTC register table. This
-		 * will yield us the value of different int status
-		 * registers and the lookahead registers.
-		 */
-		ret = ath10k_sdio_read_write_sync(
-				ar,
-				MBOX_HOST_INT_STATUS_ADDRESS,
-				(u8 *)irq_proc_reg,
-				sizeof(*irq_proc_reg),
-				HIF_RD_SYNC_BYTE_INC);
-		if (ret) {
-			mutex_unlock(&irq_data->mtx);
-			goto out;
-		}
-
-		/* Update only those registers that are enabled */
-		host_int_status = irq_proc_reg->host_int_status &
-				  irq_en_reg->int_status_en;
-
-		/* Look at mbox status */
-		if (host_int_status & htc_mbox) {
-			/* Mask out pending mbox value, we use look ahead as
-			 * the real flag for mbox processing.
-			 */
-			host_int_status &= ~htc_mbox;
-			if (irq_proc_reg->rx_lookahead_valid & htc_mbox) {
-				lookahead = le32_to_cpu(
-					irq_proc_reg->rx_lookahead[ATH10K_HTC_MAILBOX]);
-				if (!lookahead)
-					ath10k_warn(ar, "lookahead is zero!\n");
-			}
-		}
+	ret = ath10k_sdio_mbox_read_int_status(ar,
+					       &host_int_status,
+					       &lookahead);
+	if (ret) {
+		*done = true;
+		goto out;
 	}
-	mutex_unlock(&irq_data->mtx);
 
 	if (!host_int_status && !lookahead) {
+		ret = 0;
 		*done = true;
 		goto out;
 	}
