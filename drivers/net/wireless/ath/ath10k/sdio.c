@@ -380,31 +380,29 @@ static int ath10k_sdio_hif_rx_control(struct ath10k *ar,
 {
 	int ret;
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
-	struct ath10k_sdio_irq_enable_reg regs;
 	struct ath10k_sdio_irq_data *irq_data = &ar_sdio->irq_data;
+	struct ath10k_sdio_irq_enable_reg *regs = irq_data->irq_en_reg;
 
 	ath10k_dbg(ar_sdio->ar, ATH10K_DBG_SDIO, "hif rx %s\n",
 		   enable_rx ? "enable" : "disable");
 
-	spin_lock_bh(&irq_data->lock);
+	mutex_lock(&irq_data->mtx);
 
 	if (enable_rx)
-		irq_data->irq_en_reg.int_status_en |=
+		regs->int_status_en |=
 			FIELD_PREP(MBOX_INT_STATUS_ENABLE_MBOX_DATA_MASK,
 				   0x01);
 	else
-		irq_data->irq_en_reg.int_status_en &=
+		regs->int_status_en &=
 			~FIELD_PREP(MBOX_INT_STATUS_ENABLE_MBOX_DATA_MASK,
 				    0x01);
 
-	regs = irq_data->irq_en_reg;
-
-	spin_unlock_bh(&irq_data->lock);
-
 	ret = ath10k_sdio_read_write_sync(ar,
 					  MBOX_INT_STATUS_ENABLE_ADDRESS,
-					  &regs.int_status_en, sizeof(regs),
+					  &regs->int_status_en,
+					  sizeof(*regs),
 					  HIF_WR_SYNC_BYTE_INC);
+	mutex_unlock(&irq_data->mtx);
 
 	return ret;
 }
@@ -477,7 +475,13 @@ static int ath10k_sdio_mbox_rxmsg_pending_handler(struct ath10k *ar,
 static int ath10k_sdio_mbox_proc_dbg_intr(struct ath10k *ar)
 {
 	int ret;
-	u32 dummy;
+	u32 *dummy;
+
+	dummy = kzalloc(sizeof(*dummy), GFP_KERNEL);
+	if (!dummy) {
+		ret = -ENOMEM;
+		goto err;
+	}
 
 	/* TODO: Add firmware crash handling */
 	ath10k_warn(ar, "firmware crashed\n");
@@ -486,49 +490,63 @@ static int ath10k_sdio_mbox_proc_dbg_intr(struct ath10k *ar)
 	 * counter 0.
 	 */
 	ret = ath10k_sdio_read_write_sync(ar, MBOX_COUNT_DEC_ADDRESS,
-					  (u8 *)&dummy, 4,
+					  (u8 *)dummy, sizeof(*dummy),
 					  HIF_RD_SYNC_BYTE_INC);
 	if (ret)
 		ath10k_warn(ar, "Failed to clear debug interrupt: %d\n", ret);
 
+	kfree(dummy);
+err:
 	return ret;
 }
 
 static int ath10k_sdio_mbox_proc_counter_intr(struct ath10k *ar)
 {
+	int ret;
 	u8 counter_int_status;
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct ath10k_sdio_irq_data *irq_data = &ar_sdio->irq_data;
 
-	counter_int_status = irq_data->irq_proc_reg.counter_int_status &
-			     irq_data->irq_en_reg.cntr_int_status_en;
+	mutex_lock(&irq_data->mtx);
+	counter_int_status = irq_data->irq_proc_reg->counter_int_status &
+			     irq_data->irq_en_reg->cntr_int_status_en;
 
 	/* NOTE: other modules like GMBOX may use the counter interrupt for
 	 * credit flow control on other counters, we only need to check for
 	 * the debug assertion counter interrupt.
 	 */
 	if (counter_int_status & ATH10K_SDIO_TARGET_DEBUG_INTR_MASK)
-		return ath10k_sdio_mbox_proc_dbg_intr(ar);
+		ret = ath10k_sdio_mbox_proc_dbg_intr(ar);
+	else
+		ret = 0;
 
-	return 0;
+	mutex_unlock(&irq_data->mtx);
+
+	return ret;
 }
 
 static int ath10k_sdio_mbox_proc_err_intr(struct ath10k *ar)
 {
 	int ret;
 	u8 error_int_status;
-	u8 reg_buf[4];
+	u8 *reg_buf;
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct ath10k_sdio_irq_data *irq_data = &ar_sdio->irq_data;
 
+	reg_buf = kzalloc(4, GFP_KERNEL);
+	if (!reg_buf) {
+		ret = -ENOMEM;
+		goto err;
+	}
+
 	ath10k_dbg(ar, ATH10K_DBG_SDIO, "error interrupt\n");
 
-	error_int_status = irq_data->irq_proc_reg.error_int_status & 0x0F;
+	error_int_status = irq_data->irq_proc_reg->error_int_status & 0x0F;
 	if (!error_int_status) {
 		ath10k_warn(ar, "error interrupt status: %x\n",
 			    error_int_status);
 		ret = -EIO;
-		goto err;
+		goto err_free;
 	}
 
 	ath10k_dbg(ar, ATH10K_DBG_SDIO,
@@ -548,23 +566,22 @@ static int ath10k_sdio_mbox_proc_err_intr(struct ath10k *ar)
 		ath10k_warn(ar, "tx overflow\n");
 
 	/* Clear the interrupt */
-	irq_data->irq_proc_reg.error_int_status &= ~error_int_status;
+	irq_data->irq_proc_reg->error_int_status &= ~error_int_status;
 
 	/* set W1C value to clear the interrupt, this hits the register first */
 	reg_buf[0] = error_int_status;
-	reg_buf[1] = 0;
-	reg_buf[2] = 0;
-	reg_buf[3] = 0;
 
 	ret = ath10k_sdio_read_write_sync(ar,
 					  MBOX_ERROR_INT_STATUS_ADDRESS,
 					  reg_buf, 4, HIF_WR_SYNC_BYTE_FIX);
 	if (ret) {
 		ath10k_warn(ar, "Unable to write error int status address\n");
-		goto err;
+		goto err_free;
 	}
 
 	return 0;
+err_free:
+	kfree(reg_buf);
 err:
 	return ret;
 }
@@ -574,43 +591,43 @@ static int ath10k_sdio_mbox_proc_cpu_intr(struct ath10k *ar)
 	int ret;
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct ath10k_sdio_irq_data *irq_data = &ar_sdio->irq_data;
-	u8 cpu_int_status, reg_buf[4];
+	u8 cpu_int_status, *reg_buf;
 
-	cpu_int_status = irq_data->irq_proc_reg.cpu_int_status &
-			 irq_data->irq_en_reg.cpu_int_status_en;
+	mutex_lock(&irq_data->mtx);
+	cpu_int_status = irq_data->irq_proc_reg->cpu_int_status &
+			 irq_data->irq_en_reg->cpu_int_status_en;
 	if (!cpu_int_status) {
 		ath10k_warn(ar, "CPU interrupt status is zero!\n");
 		ret = -EIO;
-		goto err;
+		goto out;
 	}
 
 	/* Clear the interrupt */
-	irq_data->irq_proc_reg.cpu_int_status &= ~cpu_int_status;
+	irq_data->irq_proc_reg->cpu_int_status &= ~cpu_int_status;
 
 	/* Set up the register transfer buffer to hit the register 4 times ,
 	 * this is done to make the access 4-byte aligned to mitigate issues
 	 * with host bus interconnects that restrict bus transfer lengths to
 	 * be a multiple of 4-bytes.
 	 */
+	reg_buf = kzalloc(4, GFP_KERNEL);
+	if (!reg_buf) {
+		ret = -ENOMEM;
+		goto out;
+	}
 
 	/* set W1C value to clear the interrupt, this hits the register first */
 	reg_buf[0] = cpu_int_status;
-	/* the remaining are set to zero which have no-effect  */
-	reg_buf[1] = 0;
-	reg_buf[2] = 0;
-	reg_buf[3] = 0;
 
 	ret = ath10k_sdio_read_write_sync(ar,
 					  MBOX_CPU_INT_STATUS_ADDRESS,
 					  reg_buf, 4, HIF_WR_SYNC_BYTE_FIX);
-
-	if (ret) {
+	if (ret)
 		ath10k_warn(ar, "Unable to write cpu int status address\n");
-		goto err;
-	}
 
-	return 0;
-err:
+	kfree(reg_buf);
+out:
+	mutex_unlock(&irq_data->mtx);
 	return ret;
 }
 
@@ -619,12 +636,13 @@ static int ath10k_sdio_mbox_proc_pending_irqs(struct ath10k *ar,
 					      bool *done)
 {
 	int ret;
+	u8 htc_mbox, host_int_status = 0;
+	u32 lookahead = 0;
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct ath10k_sdio_irq_data *irq_data = &ar_sdio->irq_data;
-	struct ath10k_sdio_irq_proc_registers *rg;
-	u8 host_int_status = 0;
-	u32 lookahead = 0;
-	u8 htc_mbox;
+	struct ath10k_sdio_irq_proc_registers *irq_proc_reg =
+		irq_data->irq_proc_reg;
+	struct ath10k_sdio_irq_enable_reg *irq_en_reg = irq_data->irq_en_reg;
 
 	htc_mbox = FIELD_PREP(ATH10K_HTC_MAILBOX_MASK, 1);
 
@@ -638,7 +656,8 @@ static int ath10k_sdio_mbox_proc_pending_irqs(struct ath10k *ar,
 	 * result in unnecessary bus transaction otherwise. Target may be
 	 * unresponsive at the time.
 	 */
-	if (irq_data->irq_en_reg.int_status_en) {
+	mutex_lock(&irq_data->mtx);
+	if (irq_en_reg->int_status_en) {
 		/* Read the first sizeof(struct ath10k_irq_proc_registers)
 		 * bytes of the HTC register table. This
 		 * will yield us the value of different int status
@@ -647,15 +666,17 @@ static int ath10k_sdio_mbox_proc_pending_irqs(struct ath10k *ar,
 		ret = ath10k_sdio_read_write_sync(
 				ar,
 				MBOX_HOST_INT_STATUS_ADDRESS,
-				(u8 *)&irq_data->irq_proc_reg,
-				sizeof(irq_data->irq_proc_reg),
+				(u8 *)irq_proc_reg,
+				sizeof(*irq_proc_reg),
 				HIF_RD_SYNC_BYTE_INC);
-		if (ret)
+		if (ret) {
+			mutex_unlock(&irq_data->mtx);
 			goto out;
+		}
 
 		/* Update only those registers that are enabled */
-		host_int_status = irq_data->irq_proc_reg.host_int_status &
-				  irq_data->irq_en_reg.int_status_en;
+		host_int_status = irq_proc_reg->host_int_status &
+				  irq_en_reg->int_status_en;
 
 		/* Look at mbox status */
 		if (host_int_status & htc_mbox) {
@@ -663,16 +684,15 @@ static int ath10k_sdio_mbox_proc_pending_irqs(struct ath10k *ar,
 			 * the real flag for mbox processing.
 			 */
 			host_int_status &= ~htc_mbox;
-			if (irq_data->irq_proc_reg.rx_lookahead_valid &
-			    htc_mbox) {
-				rg = &irq_data->irq_proc_reg;
+			if (irq_proc_reg->rx_lookahead_valid & htc_mbox) {
 				lookahead = le32_to_cpu(
-					rg->rx_lookahead[ATH10K_HTC_MAILBOX]);
+					irq_proc_reg->rx_lookahead[ATH10K_HTC_MAILBOX]);
 				if (!lookahead)
 					ath10k_warn(ar, "lookahead is zero!\n");
 			}
 		}
 	}
+	mutex_unlock(&irq_data->mtx);
 
 	if (!host_int_status && !lookahead) {
 		*done = true;
@@ -715,6 +735,7 @@ static int ath10k_sdio_mbox_proc_pending_irqs(struct ath10k *ar,
 		ret = ath10k_sdio_mbox_proc_counter_intr(ar);
 
 	ret = 0;
+
 out:
 	/* An optimization to bypass reading the IRQ status registers
 	 * unecessarily which can re-wake the target, if upper layers
@@ -733,16 +754,6 @@ out:
 		   *done, ret);
 
 	return ret;
-}
-
-/* Macro to check if DMA buffer is WORD-aligned and DMA-able.
- * Most host controllers assume the buffer is DMA'able and will
- * bug-check otherwise (i.e. buffers on the stack). virt_addr_valid
- * check fails on stack memory.
- */
-static inline bool buf_needs_bounce(u8 *buf)
-{
-	return ((unsigned long)buf & 0x3) || !virt_addr_valid(buf);
 }
 
 static void ath10k_sdio_set_mbox_info(struct ath10k *ar)
@@ -890,45 +901,12 @@ static void ath10k_sdio_free_bus_req(struct ath10k *ar,
 static int ath10k_sdio_read_write_sync(struct ath10k *ar, u32 addr, u8 *buf,
 				       u32 len, u32 request)
 {
-	int ret;
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
-	u8  *tbuf = NULL;
-	bool bounced = false;
 
 	if (request & HIF_BLOCK_BASIS)
 		len = round_down(len, ar_sdio->mbox_info.block_size);
 
-	if (buf_needs_bounce(buf)) {
-		if (!ar_sdio->dma_buffer) {
-			ret = -ENOMEM;
-			goto err;
-		}
-		/* FIXME: I am not sure if it is always correct to assume
-		 * that the SDIO irq is a "fake" irq and sleep is possible.
-		 * (this function will get called from
-		 * ath10k_sdio_irq_handler
-		 */
-		mutex_lock(&ar_sdio->dma_buffer_mutex);
-		tbuf = ar_sdio->dma_buffer;
-
-		if (request & HIF_WRITE)
-			memcpy(tbuf, buf, len);
-
-		bounced = true;
-	} else {
-		tbuf = buf;
-	}
-
-	ret = ath10k_sdio_io(ar, request, addr, tbuf, len);
-	if ((request & HIF_READ) && bounced)
-		memcpy(buf, tbuf, len);
-
-	if (bounced)
-		mutex_unlock(&ar_sdio->dma_buffer_mutex);
-
-	return 0;
-err:
-	return ret;
+	return ath10k_sdio_io(ar, request, addr, buf, len);
 }
 
 static void __ath10k_sdio_write_async(struct ath10k *ar,
@@ -1003,27 +981,20 @@ static void ath10k_sdio_irq_handler(struct sdio_func *func)
 static int ath10k_sdio_hif_disable_intrs(struct ath10k *ar)
 {
 	int ret;
-	struct ath10k_sdio_irq_enable_reg regs;
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct ath10k_sdio_irq_data *irq_data = &ar_sdio->irq_data;
+	struct ath10k_sdio_irq_enable_reg *regs = irq_data->irq_en_reg;
 
-	memset(&regs, 0, sizeof(regs));
-
+	mutex_lock(&irq_data->mtx);
+	memset(regs, 0, sizeof(*regs));
 	ret = ath10k_sdio_read_write_sync(ar,
 					  MBOX_INT_STATUS_ENABLE_ADDRESS,
-					  &regs.int_status_en, sizeof(regs),
+					  &regs->int_status_en, sizeof(*regs),
 					  HIF_WR_SYNC_BYTE_INC);
-	if (ret) {
+	if (ret)
 		ath10k_warn(ar, "Unable to disable sdio interrupts\n");
-		goto err;
-	}
 
-	spin_lock_bh(&irq_data->lock);
-	irq_data->irq_en_reg = regs;
-	spin_unlock_bh(&irq_data->lock);
-
-	return 0;
-err:
+	mutex_unlock(&irq_data->mtx);
 	return ret;
 }
 
@@ -1130,55 +1101,48 @@ err:
 static int ath10k_sdio_hif_enable_intrs(struct ath10k *ar)
 {
 	int ret;
-	struct ath10k_sdio_irq_enable_reg regs;
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct ath10k_sdio_irq_data *irq_data = &ar_sdio->irq_data;
+	struct ath10k_sdio_irq_enable_reg *regs = irq_data->irq_en_reg;
 
-	memset(&regs, 0, sizeof(regs));
+	mutex_lock(&irq_data->mtx);
 
 	/* Enable all but CPU interrupts */
-	regs.int_status_en = FIELD_PREP(MBOX_INT_STATUS_ENABLE_ERROR_MASK, 1) |
+	regs->int_status_en = FIELD_PREP(MBOX_INT_STATUS_ENABLE_ERROR_MASK, 1) |
 			     FIELD_PREP(MBOX_INT_STATUS_ENABLE_CPU_MASK, 1) |
 			     FIELD_PREP(MBOX_INT_STATUS_ENABLE_COUNTER_MASK, 1);
 
 	/* NOTE: There are some cases where HIF can do detection of
 	 * pending mbox messages which is disabled now.
 	 */
-	regs.int_status_en |=
+	regs->int_status_en |=
 		FIELD_PREP(MBOX_INT_STATUS_ENABLE_MBOX_DATA_MASK, 1);
 
 	/* Set up the CPU Interrupt status Register */
-	regs.cpu_int_status_en = 0;
+	regs->cpu_int_status_en = 0;
 
 	/* Set up the Error Interrupt status Register */
-	regs.err_int_status_en =
+	regs->err_int_status_en =
 		FIELD_PREP(MBOX_ERROR_STATUS_ENABLE_RX_UNDERFLOW_MASK, 1) |
 		FIELD_PREP(MBOX_ERROR_STATUS_ENABLE_TX_OVERFLOW_MASK, 1);
 
 	/* Enable Counter interrupt status register to get fatal errors for
 	 * debugging.
 	 */
-	regs.cntr_int_status_en =
+	regs->cntr_int_status_en =
 		FIELD_PREP(MBOX_COUNTER_INT_STATUS_ENABLE_BIT_MASK,
 			   ATH10K_SDIO_TARGET_DEBUG_INTR_MASK);
 
 	ret = ath10k_sdio_read_write_sync(ar,
 					  MBOX_INT_STATUS_ENABLE_ADDRESS,
-					  &regs.int_status_en, sizeof(regs),
+					  &regs->int_status_en, sizeof(*regs),
 					  HIF_WR_SYNC_BYTE_INC);
-	if (ret) {
+	if (ret)
 		ath10k_warn(ar,
 			    "failed to update interrupt ctl reg err: %d\n",
 			    ret);
-		goto err;
-	}
 
-	spin_lock_bh(&irq_data->lock);
-	irq_data->irq_en_reg = regs;
-	spin_unlock_bh(&irq_data->lock);
-
-	return 0;
-err:
+	mutex_unlock(&irq_data->mtx);
 	return ret;
 }
 
@@ -1424,11 +1388,23 @@ static int ath10k_sdio_hif_diag_read32(struct ath10k *ar, u32 address,
 				       u32 *value)
 {
 	int ret;
-	__le32 val = 0;
+	__le32 *val;
 
-	ret = ath10k_sdio_hif_diag_read(ar, address, &val, sizeof(val));
-	*value = __le32_to_cpu(val);
+	val = kzalloc(sizeof(*val), GFP_KERNEL);
+	if (!val) {
+		ret = -ENOMEM;
+		goto out;
+	}
 
+	ret = ath10k_sdio_hif_diag_read(ar, address, val, sizeof(*val));
+	if (ret)
+		goto out_free;
+
+	*value = __le32_to_cpu(*val);
+
+out_free:
+	kfree(val);
+out:
 	return ret;
 }
 
@@ -1481,45 +1457,51 @@ static int ath10k_sdio_diag_write_mem(struct ath10k *ar, u32 address,
 static int ath10k_sdio_bmi_credits(struct ath10k *ar)
 {
 	int ret;
-	u32 addr, cmd_credits;
+	u32 addr, *cmd_credits;
 	unsigned long timeout;
 
-	cmd_credits = 0;
+	cmd_credits = kzalloc(sizeof(*cmd_credits), GFP_KERNEL);
+	if (!cmd_credits) {
+		ret = -ENOMEM;
+		goto err;
+	}
 
 	/* Read the counter register to get the command credits */
 	addr = MBOX_COUNT_DEC_ADDRESS + ATH10K_HIF_MBOX_NUM_MAX * 4;
 
 	timeout = jiffies + BMI_COMMUNICATION_TIMEOUT_HZ;
-	while (time_before(jiffies, timeout) && !cmd_credits) {
+	while (time_before(jiffies, timeout) && !*cmd_credits) {
 		/* Hit the credit counter with a 4-byte access, the first byte
 		 * read will hit the counter and cause a decrement, while the
 		 * remaining 3 bytes has no effect. The rationale behind this
 		 * is to make all HIF accesses 4-byte aligned.
 		 */
 		ret = ath10k_sdio_read_write_sync(ar, addr,
-						  (u8 *)&cmd_credits,
-						  sizeof(cmd_credits),
+						  (u8 *)cmd_credits,
+						  sizeof(*cmd_credits),
 						  HIF_RD_SYNC_BYTE_INC);
 		if (ret) {
 			ath10k_warn(ar,
 				    "Unable to decrement the command credit count register: %d\n",
 				    ret);
-			goto err;
+			goto err_free;
 		}
 
 		/* The counter is only 8 bits.
 		 * Ignore anything in the upper 3 bytes
 		 */
-		cmd_credits &= 0xFF;
+		*cmd_credits &= 0xFF;
 	}
 
-	if (!cmd_credits) {
+	if (!*cmd_credits) {
 		ath10k_warn(ar, "bmi communication timeout\n");
 		ret = -ETIMEDOUT;
-		goto err;
+		goto err_free;
 	}
 
 	return 0;
+err_free:
+	kfree(cmd_credits);
 err:
 	return ret;
 }
@@ -1528,31 +1510,39 @@ static int ath10k_sdio_bmi_get_rx_lookahead(struct ath10k *ar)
 {
 	int ret;
 	unsigned long timeout;
-	u32 rx_word = 0;
+	u32 *rx_word;
 
-	timeout = jiffies + BMI_COMMUNICATION_TIMEOUT_HZ;
-	while ((time_before(jiffies, timeout)) && !rx_word) {
-		ret = ath10k_sdio_read_write_sync(ar,
-						  MBOX_HOST_INT_STATUS_ADDRESS,
-						  (u8 *)&rx_word,
-						  sizeof(rx_word),
-						  HIF_RD_SYNC_BYTE_INC);
-		if (ret) {
-			ath10k_warn(ar, "unable to read RX_LOOKAHEAD_VALID\n");
-			goto err;
-		}
-
-		 /* all we really want is one bit */
-		rx_word &= 1;
-	}
-
+	rx_word = kzalloc(sizeof(*rx_word), GFP_KERNEL);
 	if (!rx_word) {
-		ath10k_warn(ar, "bmi_recv_buf FIFO empty\n");
-		ret = -EINVAL;
+		ret = -ENOMEM;
 		goto err;
 	}
 
+	timeout = jiffies + BMI_COMMUNICATION_TIMEOUT_HZ;
+	while ((time_before(jiffies, timeout)) && !*rx_word) {
+		ret = ath10k_sdio_read_write_sync(ar,
+						  MBOX_HOST_INT_STATUS_ADDRESS,
+						  (u8 *)rx_word,
+						  sizeof(*rx_word),
+						  HIF_RD_SYNC_BYTE_INC);
+		if (ret) {
+			ath10k_warn(ar, "unable to read RX_LOOKAHEAD_VALID\n");
+			goto err_free;
+		}
+
+		 /* all we really want is one bit */
+		*rx_word &= 1;
+	}
+
+	if (!*rx_word) {
+		ath10k_warn(ar, "bmi_recv_buf FIFO empty\n");
+		ret = -EINVAL;
+		goto err_free;
+	}
+
 	return 0;
+err_free:
+	kfree(rx_word);
 err:
 	return ret;
 }
@@ -1892,7 +1882,8 @@ static int ath10k_sdio_probe(struct sdio_func *func,
 				hw_rev, &ath10k_sdio_hif_ops);
 	if (!ar) {
 		dev_err(&func->dev, "failed to allocate core\n");
-		return -ENOMEM;
+		ret = -ENOMEM;
+		goto err;
 	}
 
 	ath10k_dbg(ar, ATH10K_DBG_BOOT,
@@ -1902,10 +1893,20 @@ static int ath10k_sdio_probe(struct sdio_func *func,
 
 	ar_sdio = ath10k_sdio_priv(ar);
 
-	ar_sdio->dma_buffer = kzalloc(ATH10K_HIF_DMA_BUFFER_SIZE, GFP_KERNEL);
-	if (!ar_sdio->dma_buffer) {
+	ar_sdio->irq_data.irq_proc_reg =
+		kzalloc(sizeof(struct ath10k_sdio_irq_proc_registers),
+			GFP_KERNEL);
+	if (!ar_sdio->irq_data.irq_proc_reg) {
 		ret = -ENOMEM;
 		goto err_core_destroy;
+	}
+
+	ar_sdio->irq_data.irq_en_reg =
+		kzalloc(sizeof(struct ath10k_sdio_irq_enable_reg),
+			GFP_KERNEL);
+	if (!ar_sdio->irq_data.irq_en_reg) {
+		ret = -ENOMEM;
+		goto err_free_proc_reg;
 	}
 
 	ar_sdio->func = func;
@@ -1916,8 +1917,7 @@ static int ath10k_sdio_probe(struct sdio_func *func,
 
 	spin_lock_init(&ar_sdio->lock);
 	spin_lock_init(&ar_sdio->wr_async_lock);
-	spin_lock_init(&ar_sdio->irq_data.lock);
-	mutex_init(&ar_sdio->dma_buffer_mutex);
+	mutex_init(&ar_sdio->irq_data.mtx);
 
 	INIT_LIST_HEAD(&ar_sdio->bus_req_freeq);
 	INIT_LIST_HEAD(&ar_sdio->wr_asyncq);
@@ -1926,7 +1926,7 @@ static int ath10k_sdio_probe(struct sdio_func *func,
 	ar_sdio->workqueue = create_singlethread_workqueue("ath10k_sdio_wq");
 	if (!ar_sdio->workqueue) {
 		ret = -ENOMEM;
-		goto err;
+		goto err_free_en_reg;
 	}
 
 	init_waitqueue_head(&ar_sdio->irq_wq);
@@ -1943,7 +1943,7 @@ static int ath10k_sdio_probe(struct sdio_func *func,
 	ret = ath10k_sdio_config(ar);
 	if (ret) {
 		ath10k_warn(ar, "Failed to config sdio: %d\n", ret);
-		goto err;
+		goto err_free_wq;
 	}
 
 	/* TODO: don't know yet how to get chip_id with SDIO */
@@ -1951,16 +1951,20 @@ static int ath10k_sdio_probe(struct sdio_func *func,
 	ret = ath10k_core_register(ar, chip_id);
 	if (ret) {
 		ath10k_warn(ar, "failed to register driver core: %d\n", ret);
-		goto err;
+		goto err_free_wq;
 	}
 
 	return 0;
 
-err:
-	kfree(ar_sdio->dma_buffer);
+err_free_wq:
+	destroy_workqueue(ar_sdio->workqueue);
+err_free_en_reg:
+	kfree(ar_sdio->irq_data.irq_en_reg);
+err_free_proc_reg:
+	kfree(ar_sdio->irq_data.irq_proc_reg);
 err_core_destroy:
 	ath10k_core_destroy(ar);
-
+err:
 	return ret;
 }
 
@@ -1980,8 +1984,6 @@ static void ath10k_sdio_remove(struct sdio_func *func)
 	cancel_work_sync(&ar_sdio->wr_async_work);
 	ath10k_core_unregister(ar);
 	ath10k_core_destroy(ar);
-
-	kfree(ar_sdio->dma_buffer);
 }
 
 static const struct sdio_device_id ath10k_sdio_devices[] = {

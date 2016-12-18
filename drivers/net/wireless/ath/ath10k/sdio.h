@@ -25,7 +25,6 @@
 #define QCA_MANUFACTURER_ID_REV_MASK            0x00FF
 #define QCA_MANUFACTURER_CODE                   0x271 /* Qualcomm/Atheros */
 
-#define ATH10K_HIF_DMA_BUFFER_SIZE              (32 * 1024)
 #define ATH10K_SDIO_MAX_BUFFER_SIZE             4096 /*Unsure of this constant*/
 
 /* Mailbox address in SDIO address space */
@@ -222,10 +221,15 @@ struct ath10k_sdio_irq_enable_reg {
 };
 
 struct ath10k_sdio_irq_data {
-	/* protects irq_proc_reg and irq_en_reg below */
-	spinlock_t lock;
-	struct ath10k_sdio_irq_proc_registers irq_proc_reg;
-	struct ath10k_sdio_irq_enable_reg irq_en_reg;
+	/* protects irq_proc_reg and irq_en_reg below.
+	 * We use a mutex here and not a spinlock since we will have the
+	 * mutex locked while calling the sdio_memcpy_ functions.
+	 * These function require non atomic context, and hence, spinlocks
+	 * can be held while calling these functions.
+	 */
+	struct mutex mtx;
+	struct ath10k_sdio_irq_proc_registers *irq_proc_reg;
+	struct ath10k_sdio_irq_enable_reg *irq_en_reg;
 };
 
 struct ath10k_mbox_ext_info {
@@ -262,11 +266,6 @@ struct ath10k_sdio {
 
 	struct ath10k *ar;
 	struct ath10k_sdio_irq_data irq_data;
-
-	u8 *dma_buffer;
-
-	/* protects access to dma_buffer */
-	struct mutex dma_buffer_mutex;
 
 	atomic_t irq_handling;
 	atomic_t stopping;
