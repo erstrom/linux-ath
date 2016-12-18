@@ -1153,29 +1153,37 @@ static int ath10k_sdio_hif_enable_intrs(struct ath10k *ar)
 static int ath10k_sdio_hif_set_mbox_sleep(struct ath10k *ar, bool enable_sleep)
 {
 	int ret;
-	u32 val;
+	u32 *val;
+
+	val = kzalloc(sizeof(*val), GFP_KERNEL);
+	if (!val) {
+		ret = -ENOMEM;
+		goto err;
+	}
 
 	ret = ath10k_sdio_read_write_sync(ar, FIFO_TIMEOUT_AND_CHIP_CONTROL,
-					  (u8 *)&val, sizeof(val),
+					  (u8 *)val, sizeof(*val),
 					  HIF_RD_SYNC_BYTE_INC);
 	if (ret) {
 		ath10k_warn(ar, "Failed to read addr: %x, code: %d\n",
 			    FIFO_TIMEOUT_AND_CHIP_CONTROL, ret);
-		goto err;
+		goto err_free;
 	}
 
 	if (enable_sleep)
-		val &= FIFO_TIMEOUT_AND_CHIP_CONTROL_DISABLE_SLEEP_OFF;
+		*val &= FIFO_TIMEOUT_AND_CHIP_CONTROL_DISABLE_SLEEP_OFF;
 	else
-		val |= FIFO_TIMEOUT_AND_CHIP_CONTROL_DISABLE_SLEEP_ON;
+		*val |= FIFO_TIMEOUT_AND_CHIP_CONTROL_DISABLE_SLEEP_ON;
 
 	ret = ath10k_sdio_read_write_sync(ar, FIFO_TIMEOUT_AND_CHIP_CONTROL,
-					  (u8 *)&val, sizeof(val),
+					  (u8 *)val, sizeof(*val),
 					  HIF_WR_SYNC_BYTE_INC);
 	if (ret)
-		goto err;
+		goto err_free;
 
 	return 0;
+err_free:
+	kfree(val);
 err:
 	return ret;
 }
