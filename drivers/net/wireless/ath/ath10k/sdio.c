@@ -24,6 +24,7 @@
 #include <linux/mmc/sdio_ids.h>
 #include <linux/mmc/sdio.h>
 #include <linux/mmc/sd.h>
+#include <linux/bitfield.h>
 #include "core.h"
 #include "bmi.h"
 #include "debug.h"
@@ -214,8 +215,7 @@ static int alloc_pkt_bundle(struct ath10k *ar,
 {
 	int ret, i;
 
-	*bndl_cnt = (htc_hdr->flags & ATH10K_HTC_FLAG_BUNDLE_MASK) >>
-		    ATH10K_HTC_FLAG_BUNDLE_LSB;
+	*bndl_cnt = FIELD_GET(ATH10K_HTC_FLAG_BUNDLE_MASK, htc_hdr->flags);
 
 	if (*bndl_cnt > HTC_HOST_MAX_MSG_PER_BUNDLE) {
 		ath10k_warn(ar,
@@ -390,10 +390,12 @@ static int ath10k_sdio_hif_rx_control(struct ath10k *ar,
 
 	if (enable_rx)
 		irq_data->irq_en_reg.int_status_en |=
-			SM(0x01, MBOX_INT_STATUS_ENABLE_MBOX_DATA);
+			FIELD_PREP(MBOX_INT_STATUS_ENABLE_MBOX_DATA_MASK,
+				   0x01);
 	else
 		irq_data->irq_en_reg.int_status_en &=
-			~SM(0x01, MBOX_INT_STATUS_ENABLE_MBOX_DATA);
+			~FIELD_PREP(MBOX_INT_STATUS_ENABLE_MBOX_DATA_MASK,
+				    0x01);
 
 	regs = irq_data->irq_en_reg;
 
@@ -533,13 +535,16 @@ static int ath10k_sdio_mbox_proc_err_intr(struct ath10k *ar)
 		   "valid interrupt source(s) in ERROR_INT_STATUS: 0x%x\n",
 		   error_int_status);
 
-	if (MS(error_int_status, MBOX_ERROR_INT_STATUS_WAKEUP))
+	if (FIELD_GET(MBOX_ERROR_INT_STATUS_WAKEUP_MASK,
+		      error_int_status))
 		ath10k_dbg(ar, ATH10K_DBG_SDIO, "error : wakeup\n");
 
-	if (MS(error_int_status, MBOX_ERROR_INT_STATUS_RX_UNDERFLOW))
+	if (FIELD_GET(MBOX_ERROR_INT_STATUS_RX_UNDERFLOW_MASK,
+		      error_int_status))
 		ath10k_warn(ar, "rx underflow\n");
 
-	if (MS(error_int_status, MBOX_ERROR_INT_STATUS_TX_OVERFLOW))
+	if (FIELD_GET(MBOX_ERROR_INT_STATUS_TX_OVERFLOW_MASK,
+		      error_int_status))
 		ath10k_warn(ar, "tx overflow\n");
 
 	/* Clear the interrupt */
@@ -619,7 +624,9 @@ static int ath10k_sdio_mbox_proc_pending_irqs(struct ath10k *ar,
 	struct ath10k_sdio_irq_proc_registers *rg;
 	u8 host_int_status = 0;
 	u32 lookahead = 0;
-	u8 htc_mbox = 1 << ATH10K_HTC_MAILBOX;
+	u8 htc_mbox;
+
+	htc_mbox = FIELD_PREP(ATH10K_HTC_MAILBOX_MASK, 1);
 
 	/* NOTE: HIF implementation guarantees that the context of this
 	 * call allows us to perform SYNCHRONOUS I/O, that is we can block,
@@ -689,21 +696,21 @@ static int ath10k_sdio_mbox_proc_pending_irqs(struct ath10k *ar,
 		   "valid interrupt source(s) for other interrupts: 0x%x\n",
 		   host_int_status);
 
-	if (MS(host_int_status, MBOX_HOST_INT_STATUS_CPU)) {
+	if (FIELD_GET(MBOX_HOST_INT_STATUS_CPU_MASK, host_int_status)) {
 		/* CPU Interrupt */
 		ret = ath10k_sdio_mbox_proc_cpu_intr(ar);
 		if (ret)
 			goto out;
 	}
 
-	if (MS(host_int_status, MBOX_HOST_INT_STATUS_ERROR)) {
+	if (FIELD_GET(MBOX_HOST_INT_STATUS_ERROR_MASK, host_int_status)) {
 		/* Error Interrupt */
 		ret = ath10k_sdio_mbox_proc_err_intr(ar);
 		if (ret)
 			goto out;
 	}
 
-	if (MS(host_int_status, MBOX_HOST_INT_STATUS_COUNTER))
+	if (FIELD_GET(MBOX_HOST_INT_STATUS_COUNTER_MASK, host_int_status))
 		/* Counter Interrupt */
 		ret = ath10k_sdio_mbox_proc_counter_intr(ar);
 
@@ -772,15 +779,12 @@ static inline void ath10k_sdio_set_cmd52_arg(u32 *arg, u8 write, u8 raw,
 					     unsigned int address,
 					     unsigned char val)
 {
-	const u8 func = 0;
-
-	*arg = ((write & 1) << 31) |
-	       ((func & 0x7) << 28) |
-	       ((raw & 1) << 27) |
-	       (1 << 26) |
-	       ((address & 0x1FFFF) << 9) |
-	       (1 << 8) |
-	       (val & 0xFF);
+	*arg = FIELD_PREP(BIT(31), write) |
+	       FIELD_PREP(BIT(27), raw) |
+	       FIELD_PREP(BIT(26), 1) |
+	       FIELD_PREP(GENMASK(25, 9), address) |
+	       FIELD_PREP(BIT(8), 1) |
+	       FIELD_PREP(GENMASK(7, 0), val);
 }
 
 static int ath10k_sdio_func0_cmd52_wr_byte(struct mmc_card *card,
@@ -1133,28 +1137,30 @@ static int ath10k_sdio_hif_enable_intrs(struct ath10k *ar)
 	memset(&regs, 0, sizeof(regs));
 
 	/* Enable all but CPU interrupts */
-	regs.int_status_en = SM(0x01, MBOX_INT_STATUS_ENABLE_ERROR) |
-			     SM(0x01, MBOX_INT_STATUS_ENABLE_CPU) |
-			     SM(0x01, MBOX_INT_STATUS_ENABLE_COUNTER);
+	regs.int_status_en = FIELD_PREP(MBOX_INT_STATUS_ENABLE_ERROR_MASK, 1) |
+			     FIELD_PREP(MBOX_INT_STATUS_ENABLE_CPU_MASK, 1) |
+			     FIELD_PREP(MBOX_INT_STATUS_ENABLE_COUNTER_MASK, 1);
 
 	/* NOTE: There are some cases where HIF can do detection of
 	 * pending mbox messages which is disabled now.
 	 */
-	regs.int_status_en |= SM(0x01, MBOX_INT_STATUS_ENABLE_MBOX_DATA);
+	regs.int_status_en |=
+		FIELD_PREP(MBOX_INT_STATUS_ENABLE_MBOX_DATA_MASK, 1);
 
 	/* Set up the CPU Interrupt status Register */
 	regs.cpu_int_status_en = 0;
 
 	/* Set up the Error Interrupt status Register */
 	regs.err_int_status_en =
-		SM(0x01, MBOX_ERROR_STATUS_ENABLE_RX_UNDERFLOW) |
-		SM(0x01, MBOX_ERROR_STATUS_ENABLE_TX_OVERFLOW);
+		FIELD_PREP(MBOX_ERROR_STATUS_ENABLE_RX_UNDERFLOW_MASK, 1) |
+		FIELD_PREP(MBOX_ERROR_STATUS_ENABLE_TX_OVERFLOW_MASK, 1);
 
 	/* Enable Counter interrupt status register to get fatal errors for
 	 * debugging.
 	 */
-	regs.cntr_int_status_en = SM(ATH10K_SDIO_TARGET_DEBUG_INTR_MASK,
-				     MBOX_COUNTER_INT_STATUS_ENABLE_BIT);
+	regs.cntr_int_status_en =
+		FIELD_PREP(MBOX_COUNTER_INT_STATUS_ENABLE_BIT_MASK,
+			   ATH10K_SDIO_TARGET_DEBUG_INTR_MASK);
 
 	ret = ath10k_sdio_read_write_sync(ar,
 					  MBOX_INT_STATUS_ENABLE_ADDRESS,
@@ -1307,6 +1313,7 @@ static void ath10k_sdio_irq_disable(struct ath10k *ar)
 	sdio_release_host(ar_sdio->func);
 }
 
+
 static int ath10k_sdio_config(struct ath10k *ar)
 {
 	int ret;
@@ -1323,8 +1330,9 @@ static int ath10k_sdio_config(struct ath10k *ar)
 					      SDIO_CCCR_DRIVE_STRENGTH,
 					      &byte);
 
-	byte = (byte & (~(SDIO_DRIVE_DTSx_MASK << SDIO_DRIVE_DTSx_SHIFT))) |
-		SDIO_DTSx_SET_TYPE_D;
+	byte &= ~ATH10K_SDIO_DRIVE_DTSx_MASK;
+	byte |= FIELD_PREP(ATH10K_SDIO_DRIVE_DTSx_MASK,
+			   ATH10K_SDIO_DRIVE_DTSx_TYPE_D);
 
 	ret = ath10k_sdio_func0_cmd52_wr_byte(func->card,
 					      SDIO_CCCR_DRIVE_STRENGTH,
@@ -1370,9 +1378,8 @@ static int ath10k_sdio_config(struct ath10k *ar)
 					      CCCR_SDIO_ASYNC_INT_DELAY_ADDRESS,
 					      &byte);
 
-	byte = (byte & ~CCCR_SDIO_ASYNC_INT_DELAY_MASK) |
-		((asyncintdelay << CCCR_SDIO_ASYNC_INT_DELAY_LSB) &
-		CCCR_SDIO_ASYNC_INT_DELAY_MASK);
+	byte &= ~CCCR_SDIO_ASYNC_INT_DELAY_MASK;
+	byte |= FIELD_PREP(CCCR_SDIO_ASYNC_INT_DELAY_MASK, asyncintdelay);
 
 	ret = ath10k_sdio_func0_cmd52_wr_byte(func->card,
 					      CCCR_SDIO_ASYNC_INT_DELAY_ADDRESS,

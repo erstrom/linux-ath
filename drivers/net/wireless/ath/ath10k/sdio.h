@@ -51,12 +51,25 @@
 
 /* HTC runs over mailbox 0 */
 #define ATH10K_HTC_MAILBOX                      0
+#define ATH10K_HTC_MAILBOX_MASK                 BIT(ATH10K_HTC_MAILBOX)
 
 /* GMBOX addresses */
 #define ATH10K_HIF_GMBOX_BASE_ADDR              0x7000
 #define ATH10K_HIF_GMBOX_WIDTH                  0x4000
 
-/* interrupt mode register */
+/* Modified versions of the sdio.h macros.
+ * The macros in sdio.h can't be used easily with the FIELD_{PREP|GET}
+ * macros in bitfield.h, so we define our own macros here.
+ */
+#define ATH10K_SDIO_DRIVE_DTSx_MASK \
+	(SDIO_DRIVE_DTSx_MASK << SDIO_DRIVE_DTSx_SHIFT)
+
+#define ATH10K_SDIO_DRIVE_DTSx_TYPE_B           0
+#define ATH10K_SDIO_DRIVE_DTSx_TYPE_A           1
+#define ATH10K_SDIO_DRIVE_DTSx_TYPE_C           2
+#define ATH10K_SDIO_DRIVE_DTSx_TYPE_D           3
+
+/* SDIO CCCR register definitions */
 #define CCCR_SDIO_IRQ_MODE_REG                  0xF0
 #define CCCR_SDIO_IRQ_MODE_REG_SDIO3            0x16
 
@@ -67,7 +80,6 @@
 #define CCCR_SDIO_DRIVER_STRENGTH_ENABLE_D      0x08
 
 #define CCCR_SDIO_ASYNC_INT_DELAY_ADDRESS       0xF0
-#define CCCR_SDIO_ASYNC_INT_DELAY_LSB           0x06
 #define CCCR_SDIO_ASYNC_INT_DELAY_MASK          0xC0
 
 /* mode to enable special 4-bit interrupt assertion without clock */
