@@ -111,6 +111,15 @@ struct ath10k_sdio_bus_request {
 	struct sk_buff *skb;
 	enum ath10k_htc_ep_id eid;
 	int status;
+	/* Specifies if the current request is an HTC message.
+	 * If not, the eid is not applicable an the TX completion handler
+	 * associated with the endpoint will not be invoked.
+	 */
+	bool htc_msg;
+	/* Completion that (if set) will be invoked for non HTC requests
+	 * (htc_msg == false) when the request has been processed.
+	 */
+	struct completion *comp;
 };
 
 struct ath10k_sdio_rx_data {
@@ -267,8 +276,6 @@ struct ath10k_sdio {
 	struct ath10k *ar;
 	struct ath10k_sdio_irq_data irq_data;
 
-	atomic_t irq_handling;
-	atomic_t stopping;
 	wait_queue_head_t irq_wq;
 
 	bool is_disabled;

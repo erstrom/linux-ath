@@ -372,41 +372,6 @@ err:
 	return ret;
 }
 
-/* Disable packet reception (used in case the host runs out of buffers)
- * using the interrupt enable registers through the host I/F
- */
-static int ath10k_sdio_hif_rx_control(struct ath10k *ar,
-				      bool enable_rx)
-{
-	int ret;
-	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
-	struct ath10k_sdio_irq_data *irq_data = &ar_sdio->irq_data;
-	struct ath10k_sdio_irq_enable_reg *regs = irq_data->irq_en_reg;
-
-	ath10k_dbg(ar_sdio->ar, ATH10K_DBG_SDIO, "hif rx %s\n",
-		   enable_rx ? "enable" : "disable");
-
-	mutex_lock(&irq_data->mtx);
-
-	if (enable_rx)
-		regs->int_status_en |=
-			FIELD_PREP(MBOX_INT_STATUS_ENABLE_MBOX_DATA_MASK,
-				   0x01);
-	else
-		regs->int_status_en &=
-			~FIELD_PREP(MBOX_INT_STATUS_ENABLE_MBOX_DATA_MASK,
-				    0x01);
-
-	ret = ath10k_sdio_read_write_sync(ar,
-					  MBOX_INT_STATUS_ENABLE_ADDRESS,
-					  &regs->int_status_en,
-					  sizeof(*regs),
-					  HIF_WR_SYNC_BYTE_INC);
-	mutex_unlock(&irq_data->mtx);
-
-	return ret;
-}
-
 static int ath10k_sdio_mbox_rxmsg_pending_handler(struct ath10k *ar,
 						  u32 msg_lookahead, bool *done)
 {
@@ -463,11 +428,6 @@ static int ath10k_sdio_mbox_rxmsg_pending_handler(struct ath10k *ar,
 	if (ret && (ret != -ECANCELED))
 		ath10k_warn(ar, "failed to get pending recv messages: %d\n",
 			    ret);
-
-	if (atomic_read(&ar_sdio->stopping)) {
-		ath10k_warn(ar, "host is going to stop. Turning of RX\n");
-		ath10k_sdio_hif_rx_control(ar, false);
-	}
 
 	return ret;
 }
@@ -920,6 +880,7 @@ static void ath10k_sdio_free_bus_req(struct ath10k *ar,
 {
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 
+	memset(bus_req, 0, sizeof(*bus_req));
 	spin_lock_bh(&ar_sdio->lock);
 	list_add_tail(&bus_req->list, &ar_sdio->bus_req_freeq);
 	spin_unlock_bh(&ar_sdio->lock);
@@ -948,8 +909,12 @@ static void __ath10k_sdio_write_async(struct ath10k *ar,
 	ret = ath10k_sdio_read_write_sync(ar, req->address,
 					  skb->data, req->len,
 					  req->request);
-	ep = &ar_sdio->ar->htc.endpoint[req->eid];
-	ath10k_htc_notify_tx_completion(ep, skb);
+	if (req->htc_msg) {
+		ep = &ar_sdio->ar->htc.endpoint[req->eid];
+		ath10k_htc_notify_tx_completion(ep, skb);
+	} else if (req->comp) {
+		complete(req->comp);
+	}
 	ath10k_sdio_free_bus_req(ar, req);
 }
 
@@ -982,7 +947,6 @@ static void ath10k_sdio_irq_handler(struct sdio_func *func)
 
 	ar_sdio = sdio_get_drvdata(func);
 	ar = ar_sdio->ar;
-	atomic_set(&ar_sdio->irq_handling, 1);
 
 	/* Release the host during interrupts so we can pick it back up when
 	 * we process commands.
@@ -998,7 +962,6 @@ static void ath10k_sdio_irq_handler(struct sdio_func *func)
 
 	sdio_claim_host(ar_sdio->func);
 
-	atomic_set(&ar_sdio->irq_handling, 0);
 	wake_up(&ar_sdio->irq_wq);
 
 	if (ret && ret != -ECANCELED)
@@ -1112,6 +1075,7 @@ static int ath10k_sdio_hif_tx_sg(struct ath10k *ar, u8 pipe_id,
 		bus_req->address = address;
 		bus_req->len = ath10k_sdio_calc_txrx_padded_len(ar_sdio,
 								bus_req->skb->len);
+		bus_req->htc_msg = true;
 
 		spin_lock_bh(&ar_sdio->wr_async_lock);
 		list_add_tail(&bus_req->list, &ar_sdio->wr_asyncq);
@@ -1278,40 +1242,71 @@ err:
 	return ret;
 }
 
-static bool ath10k_sdio_is_on_irq(struct ath10k *ar)
-{
-	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
-
-	return !atomic_read(&ar_sdio->irq_handling);
-}
+#define SDIO_IRQ_DISABLE_TIMEOUT_HZ (3 * HZ)
 
 static void ath10k_sdio_irq_disable(struct ath10k *ar)
 {
 	int ret;
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
+	struct ath10k_sdio_irq_data *irq_data = &ar_sdio->irq_data;
+	struct ath10k_sdio_irq_enable_reg *regs = irq_data->irq_en_reg;
+	struct ath10k_sdio_bus_request *bus_req;
+	struct sk_buff *skb;
+	struct completion irqs_disabled_comp;
+
+	/* Allocate a bus request for the interrupt disable message and
+	 * queue it on the SDIO workqueue
+	 */
+	bus_req = ath10k_sdio_alloc_busreq(ar);
+	if (!bus_req)
+		goto out;
+
+	skb = dev_alloc_skb(sizeof(*regs));
+	if (!skb)
+		goto out;
+
+	mutex_lock(&irq_data->mtx);
+	memset(regs, 0, sizeof(*regs)); /* disable all interrupts */
+	memcpy(skb->data, regs, sizeof(*regs));
+	skb_put(skb, sizeof(*regs));
+	mutex_unlock(&irq_data->mtx);
+
+	init_completion(&irqs_disabled_comp);
+
+	bus_req->skb = skb;
+	bus_req->request = HIF_WRITE;
+	bus_req->eid = 0; /* not applicable since this is not an HTC message */
+	bus_req->address = MBOX_INT_STATUS_ENABLE_ADDRESS;
+	bus_req->len = skb->len;
+	bus_req->htc_msg = false;
+	bus_req->comp = &irqs_disabled_comp;
+
+	spin_lock_bh(&ar_sdio->wr_async_lock);
+	list_add_tail(&bus_req->list, &ar_sdio->wr_asyncq);
+	spin_unlock_bh(&ar_sdio->wr_async_lock);
+
+	queue_work(ar_sdio->workqueue, &ar_sdio->wr_async_work);
+
+	/* Wait for the completion of the IRQ disable request.
+	 * If there is a timeout we will try to disable irq's anyway.
+	 */
+	ret = wait_for_completion_timeout(&irqs_disabled_comp,
+					  SDIO_IRQ_DISABLE_TIMEOUT_HZ);
+	if (!ret)
+		ath10k_warn(ar, "sdio irq disable request timed out\n");
+
+	kfree_skb(skb);
 
 	sdio_claim_host(ar_sdio->func);
-
-	atomic_set(&ar_sdio->stopping, 1);
-
-	if (atomic_read(&ar_sdio->irq_handling)) {
-		sdio_release_host(ar_sdio->func);
-
-		ret = wait_event_interruptible(ar_sdio->irq_wq,
-					       ath10k_sdio_is_on_irq(ar));
-		if (ret)
-			return;
-
-		sdio_claim_host(ar_sdio->func);
-	}
 
 	ret = sdio_release_irq(ar_sdio->func);
 	if (ret)
 		ath10k_warn(ar, "Failed to release sdio irq: %d\n", ret);
 
 	sdio_release_host(ar_sdio->func);
+out:
+	return;
 }
-
 
 static int ath10k_sdio_config(struct ath10k *ar)
 {
@@ -1687,13 +1682,18 @@ static void ath10k_sdio_hif_stop(struct ath10k *ar)
 
 	spin_lock_bh(&ar_sdio->wr_async_lock);
 
+	/* Free all bus requests that have not been handled */
 	list_for_each_entry_safe(req, tmp_req, &ar_sdio->wr_asyncq, list) {
 		struct ath10k_htc_ep *ep;
 
 		list_del(&req->list);
 
-		ep = &ar->htc.endpoint[req->eid];
-		ath10k_htc_notify_tx_completion(ep, req->skb);
+		if (req->htc_msg) {
+			ep = &ar->htc.endpoint[req->eid];
+			ath10k_htc_notify_tx_completion(ep, req->skb);
+		} else if (req->skb) {
+			kfree_skb(req->skb);
+		}
 		ath10k_sdio_free_bus_req(ar, req);
 	}
 
