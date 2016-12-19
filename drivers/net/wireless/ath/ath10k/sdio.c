@@ -1822,29 +1822,15 @@ static void ath10k_sdio_hif_get_default_pipe(struct ath10k *ar,
 	*dl_pipe = 0;
 }
 
-static int ath10k_sdio_hif_fetch_cal_eeprom(struct ath10k *ar, void **data,
-					    size_t *data_len)
-{
-	return -EOPNOTSUPP;
-}
-
-static void ath10k_sdio_write32(struct ath10k *ar, u32 offset, u32 value)
-{
-}
-
-static u32 ath10k_sdio_read32(struct ath10k *ar, u32 offset)
-{
-	return 0;
-}
-
+/* This op is currently only used by htc_wait_target if the HTC ready
+ * message times out. It is not applicable for SDIO since there is nothing
+ * we can do if the HTC ready message does not arrive in time.
+ * TODO: Make this op non mandatory by introducing a NULL check in the
+ * hif op wrapper.
+ */
 static void ath10k_sdio_hif_send_complete_check(struct ath10k *ar,
 						u8 pipe, int force)
 {
-}
-
-static u16 ath10k_sdio_hif_get_free_queue_number(struct ath10k *ar, u8 pipe)
-{
-	return 0;
 }
 
 static const struct ath10k_hif_ops ath10k_sdio_hif_ops = {
@@ -1857,16 +1843,12 @@ static const struct ath10k_hif_ops ath10k_sdio_hif_ops = {
 	.map_service_to_pipe	= ath10k_sdio_hif_map_service_to_pipe,
 	.get_default_pipe	= ath10k_sdio_hif_get_default_pipe,
 	.send_complete_check	= ath10k_sdio_hif_send_complete_check,
-	.get_free_queue_number	= ath10k_sdio_hif_get_free_queue_number,
 	.power_up		= ath10k_sdio_hif_power_up,
 	.power_down		= ath10k_sdio_hif_power_down,
-	.read32			= ath10k_sdio_read32,
-	.write32		= ath10k_sdio_write32,
 #ifdef CONFIG_PM
 	.suspend		= ath10k_sdio_hif_suspend,
 	.resume			= ath10k_sdio_hif_resume,
 #endif
-	.fetch_cal_eeprom	= ath10k_sdio_hif_fetch_cal_eeprom,
 };
 
 #ifdef CONFIG_PM_SLEEP
