@@ -382,10 +382,11 @@ out:
 	return ret;
 }
 
-static int alloc_pkt_bundle(struct ath10k *ar,
-			    struct ath10k_sdio_rx_data *rx_pkts,
-			    struct ath10k_htc_hdr *htc_hdr,
-			    size_t full_len, size_t act_len, size_t *bndl_cnt)
+static int ath10k_sdio_mbox_alloc_pkt_bundle(struct ath10k *ar,
+					     struct ath10k_sdio_rx_data *rx_pkts,
+					     struct ath10k_htc_hdr *htc_hdr,
+					     size_t full_len, size_t act_len,
+					     size_t *bndl_cnt)
 {
 	int ret, i;
 
@@ -471,9 +472,12 @@ static int ath10k_sdio_mbox_rx_alloc(struct ath10k *ar,
 			 */
 			size_t bndl_cnt;
 
-			ret = alloc_pkt_bundle(ar, &ar_sdio->rx_pkts[i],
-					       htc_hdr,
-					       full_len, act_len, &bndl_cnt);
+			ret = ath10k_sdio_mbox_alloc_pkt_bundle(ar,
+								&ar_sdio->rx_pkts[i],
+								htc_hdr,
+								full_len,
+								act_len,
+								&bndl_cnt);
 
 			n_lookaheads += bndl_cnt;
 			i += bndl_cnt;
@@ -1041,9 +1045,9 @@ err:
 	return ret;
 }
 
-static int ath10k_sdio_hif_exchange_bmi_msg(struct ath10k *ar,
-					    void *req, u32 req_len,
-					    void *resp, u32 *resp_len)
+static int ath10k_sdio_bmi_exchange_msg(struct ath10k *ar,
+					void *req, u32 req_len,
+					void *resp, u32 *resp_len)
 {
 	int ret;
 	u32 addr;
@@ -1459,7 +1463,8 @@ err:
 }
 
 /* set the window address register (using 4-byte register access ). */
-static int ath10k_set_addrwin_reg(struct ath10k *ar, u32 reg_addr, u32 addr)
+static int ath10k_sdio_hif_set_addrwin_reg(struct ath10k *ar, u32 reg_addr,
+					   u32 addr)
 {
 	int ret;
 
@@ -1482,8 +1487,9 @@ static int ath10k_sdio_hif_diag_read(struct ath10k *ar, u32 address, void *buf,
 	int ret;
 
 	/* set window register to start read cycle */
-	ret = ath10k_set_addrwin_reg(ar, MBOX_WINDOW_READ_ADDR_ADDRESS,
-				     address);
+	ret = ath10k_sdio_hif_set_addrwin_reg(ar,
+					      MBOX_WINDOW_READ_ADDR_ADDRESS,
+					      address);
 
 	if (ret)
 		return ret;
@@ -1654,8 +1660,8 @@ out:
 	return;
 }
 
-static int ath10k_sdio_diag_write_mem(struct ath10k *ar, u32 address,
-				      const void *data, int nbytes)
+static int ath10k_sdio_hif_diag_write_mem(struct ath10k *ar, u32 address,
+					  const void *data, int nbytes)
 {
 	int ret;
 
@@ -1671,8 +1677,9 @@ static int ath10k_sdio_diag_write_mem(struct ath10k *ar, u32 address,
 	}
 
 	/* set window register, which starts the write cycle */
-	return ath10k_set_addrwin_reg(ar, MBOX_WINDOW_WRITE_ADDR_ADDRESS,
-				      address);
+	return ath10k_sdio_hif_set_addrwin_reg(ar,
+					       MBOX_WINDOW_WRITE_ADDR_ADDRESS,
+					       address);
 }
 
 static void ath10k_sdio_hif_stop(struct ath10k *ar)
@@ -1840,8 +1847,8 @@ static void ath10k_sdio_hif_send_complete_check(struct ath10k *ar,
 static const struct ath10k_hif_ops ath10k_sdio_hif_ops = {
 	.tx_sg			= ath10k_sdio_hif_tx_sg,
 	.diag_read		= ath10k_sdio_hif_diag_read,
-	.diag_write		= ath10k_sdio_diag_write_mem,
-	.exchange_bmi_msg	= ath10k_sdio_hif_exchange_bmi_msg,
+	.diag_write		= ath10k_sdio_hif_diag_write_mem,
+	.exchange_bmi_msg	= ath10k_sdio_bmi_exchange_msg,
 	.start			= ath10k_sdio_hif_start,
 	.stop			= ath10k_sdio_hif_stop,
 	.map_service_to_pipe	= ath10k_sdio_hif_map_service_to_pipe,
