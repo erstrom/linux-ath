@@ -40,13 +40,6 @@ static inline int ath10k_sdio_calc_txrx_padded_len(struct ath10k_sdio *ar_sdio,
 	return __ALIGN_MASK((len), ar_sdio->mbox_info.block_mask);
 }
 
-static int ath10k_sdio_read_write_sync(struct ath10k *ar, u32 addr, u8 *buf,
-				       u32 len, u32 request);
-static int ath10k_sdio_hif_diag_read(struct ath10k *ar, u32 address, void *buf,
-				     size_t buf_len);
-static int ath10k_sdio_hif_diag_read32(struct ath10k *ar, u32 address,
-				       u32 *value);
-
 /* HIF mbox interrupt handling */
 
 static bool is_trailer_only_msg(struct ath10k_sdio_rx_data *pkt)
@@ -65,6 +58,50 @@ static bool is_trailer_only_msg(struct ath10k_sdio_rx_data *pkt)
 static inline enum ath10k_htc_ep_id pipe_id_to_eid(u8 pipe_id)
 {
 	return (enum ath10k_htc_ep_id)pipe_id;
+}
+
+static int ath10k_sdio_io(struct ath10k *ar, u32 request, u32 addr,
+			  u8 *buf, u32 len)
+{
+	int ret;
+	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
+	struct sdio_func *func = ar_sdio->func;
+
+	sdio_claim_host(func);
+
+	if (request & HIF_WRITE) {
+		if (request & HIF_FIXED_ADDRESS)
+			ret = sdio_writesb(func, addr, buf, len);
+		else
+			ret = sdio_memcpy_toio(func, addr, buf, len);
+	} else {
+		if (request & HIF_FIXED_ADDRESS)
+			ret = sdio_readsb(func, buf, addr, len);
+		else
+			ret = sdio_memcpy_fromio(func, buf, addr, len);
+	}
+
+	sdio_release_host(func);
+
+	ath10k_dbg(ar, ATH10K_DBG_SDIO, "%s addr 0x%x%s buf 0x%p len %d\n",
+		   request & HIF_WRITE ? "wr" : "rd", addr,
+		   request & HIF_FIXED_ADDRESS ? " (fixed)" : "", buf, len);
+	ath10k_dbg_dump(ar, ATH10K_DBG_SDIO_DUMP, NULL,
+			request & HIF_WRITE ? "sdio wr " : "sdio rd ",
+			buf, len);
+
+	return ret;
+}
+
+static int ath10k_sdio_read_write_sync(struct ath10k *ar, u32 addr, u8 *buf,
+				       u32 len, u32 request)
+{
+	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
+
+	if (request & HIF_BLOCK_BASIS)
+		len = round_down(len, ar_sdio->mbox_info.block_size);
+
+	return ath10k_sdio_io(ar, request, addr, buf, len);
 }
 
 static int ath10k_sdio_mbox_rx_process_packet(struct ath10k *ar,
@@ -818,39 +855,6 @@ static int ath10k_sdio_func0_cmd52_rd_byte(struct mmc_card *card,
 	return ret;
 }
 
-static int ath10k_sdio_io(struct ath10k *ar, u32 request, u32 addr,
-			  u8 *buf, u32 len)
-{
-	int ret;
-	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
-	struct sdio_func *func = ar_sdio->func;
-
-	sdio_claim_host(func);
-
-	if (request & HIF_WRITE) {
-		if (request & HIF_FIXED_ADDRESS)
-			ret = sdio_writesb(func, addr, buf, len);
-		else
-			ret = sdio_memcpy_toio(func, addr, buf, len);
-	} else {
-		if (request & HIF_FIXED_ADDRESS)
-			ret = sdio_readsb(func, buf, addr, len);
-		else
-			ret = sdio_memcpy_fromio(func, buf, addr, len);
-	}
-
-	sdio_release_host(func);
-
-	ath10k_dbg(ar, ATH10K_DBG_SDIO, "%s addr 0x%x%s buf 0x%p len %d\n",
-		   request & HIF_WRITE ? "wr" : "rd", addr,
-		   request & HIF_FIXED_ADDRESS ? " (fixed)" : "", buf, len);
-	ath10k_dbg_dump(ar, ATH10K_DBG_SDIO_DUMP, NULL,
-			request & HIF_WRITE ? "sdio wr " : "sdio rd ",
-			buf, len);
-
-	return ret;
-}
-
 static struct ath10k_sdio_bus_request
 *ath10k_sdio_alloc_busreq(struct ath10k *ar)
 {
@@ -884,17 +888,6 @@ static void ath10k_sdio_free_bus_req(struct ath10k *ar,
 	spin_lock_bh(&ar_sdio->lock);
 	list_add_tail(&bus_req->list, &ar_sdio->bus_req_freeq);
 	spin_unlock_bh(&ar_sdio->lock);
-}
-
-static int ath10k_sdio_read_write_sync(struct ath10k *ar, u32 addr, u8 *buf,
-				       u32 len, u32 request)
-{
-	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
-
-	if (request & HIF_BLOCK_BASIS)
-		len = round_down(len, ar_sdio->mbox_info.block_size);
-
-	return ath10k_sdio_io(ar, request, addr, buf, len);
 }
 
 static void __ath10k_sdio_write_async(struct ath10k *ar,
@@ -1179,6 +1172,73 @@ err:
 	return ret;
 }
 
+/* set the window address register (using 4-byte register access ). */
+static int ath10k_set_addrwin_reg(struct ath10k *ar, u32 reg_addr, u32 addr)
+{
+	int ret;
+
+	ret = ath10k_sdio_read_write_sync(ar, reg_addr, (u8 *)(&addr),
+					  4, HIF_WR_SYNC_BYTE_INC);
+
+	if (ret) {
+		ath10k_warn(ar,
+			    "%s: failed to write 0x%x to window reg: 0x%X\n",
+			    __func__, addr, reg_addr);
+		return ret;
+	}
+
+	return 0;
+}
+
+static int ath10k_sdio_hif_diag_read(struct ath10k *ar, u32 address, void *buf,
+				     size_t buf_len)
+{
+	int ret;
+
+	/* set window register to start read cycle */
+	ret = ath10k_set_addrwin_reg(ar, MBOX_WINDOW_READ_ADDR_ADDRESS,
+				     address);
+
+	if (ret)
+		return ret;
+
+	/* read the data */
+	ret = ath10k_sdio_read_write_sync(ar, MBOX_WINDOW_DATA_ADDRESS,
+					  (u8 *)buf, buf_len,
+					  HIF_RD_SYNC_BYTE_INC);
+	if (ret) {
+		ath10k_warn(ar, "%s: failed to read from window data addr\n",
+			    __func__);
+		return ret;
+	}
+
+	return ret;
+}
+
+static int ath10k_sdio_hif_diag_read32(struct ath10k *ar, u32 address,
+				       u32 *value)
+{
+	int ret;
+	__le32 *val;
+
+	val = kzalloc(sizeof(*val), GFP_KERNEL);
+	if (!val) {
+		ret = -ENOMEM;
+		goto out;
+	}
+
+	ret = ath10k_sdio_hif_diag_read(ar, address, val, sizeof(*val));
+	if (ret)
+		goto out_free;
+
+	*value = __le32_to_cpu(*val);
+
+out_free:
+	kfree(val);
+out:
+	return ret;
+}
+
 static int ath10k_sdio_hif_start(struct ath10k *ar)
 {
 	int ret;
@@ -1393,73 +1453,6 @@ static int ath10k_sdio_config(struct ath10k *ar)
 	return 0;
 err:
 	sdio_release_host(func);
-	return ret;
-}
-
-/* set the window address register (using 4-byte register access ). */
-static int ath10k_set_addrwin_reg(struct ath10k *ar, u32 reg_addr, u32 addr)
-{
-	int ret;
-
-	ret = ath10k_sdio_read_write_sync(ar, reg_addr, (u8 *)(&addr),
-					  4, HIF_WR_SYNC_BYTE_INC);
-
-	if (ret) {
-		ath10k_warn(ar,
-			    "%s: failed to write 0x%x to window reg: 0x%X\n",
-			    __func__, addr, reg_addr);
-		return ret;
-	}
-
-	return 0;
-}
-
-static int ath10k_sdio_hif_diag_read32(struct ath10k *ar, u32 address,
-				       u32 *value)
-{
-	int ret;
-	__le32 *val;
-
-	val = kzalloc(sizeof(*val), GFP_KERNEL);
-	if (!val) {
-		ret = -ENOMEM;
-		goto out;
-	}
-
-	ret = ath10k_sdio_hif_diag_read(ar, address, val, sizeof(*val));
-	if (ret)
-		goto out_free;
-
-	*value = __le32_to_cpu(*val);
-
-out_free:
-	kfree(val);
-out:
-	return ret;
-}
-
-static int ath10k_sdio_hif_diag_read(struct ath10k *ar, u32 address, void *buf,
-				     size_t buf_len)
-{
-	int ret;
-
-	/* set window register to start read cycle */
-	ret = ath10k_set_addrwin_reg(ar, MBOX_WINDOW_READ_ADDR_ADDRESS,
-				     address);
-
-	if (ret)
-		return ret;
-
-	/* read the data */
-	ret = ath10k_sdio_read_write_sync(ar, MBOX_WINDOW_DATA_ADDRESS,
-					  (u8 *)buf, buf_len,
-					  HIF_RD_SYNC_BYTE_INC);
-	if (ret) {
-		ath10k_warn(ar, "%s: failed to read from window data addr\n",
-			    __func__);
-		return ret;
-	}
-
 	return ret;
 }
 
