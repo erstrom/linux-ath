@@ -34,15 +34,47 @@
 #include "trace.h"
 #include "sdio.h"
 
+/* inlined helper functions */
+
 static inline int ath10k_sdio_calc_txrx_padded_len(struct ath10k_sdio *ar_sdio,
 						   size_t len)
 {
 	return __ALIGN_MASK((len), ar_sdio->mbox_info.block_mask);
 }
 
-/* HIF mbox interrupt handling */
+static inline enum ath10k_htc_ep_id pipe_id_to_eid(u8 pipe_id)
+{
+	return (enum ath10k_htc_ep_id)pipe_id;
+}
 
-static bool is_trailer_only_msg(struct ath10k_sdio_rx_data *pkt)
+static inline void ath10k_sdio_mbox_free_rx_pkt(struct ath10k_sdio_rx_data *pkt)
+{
+	dev_kfree_skb(pkt->skb);
+	pkt->skb = NULL;
+	pkt->alloc_len = 0;
+	pkt->act_len = 0;
+	pkt->trailer_only = false;
+}
+
+static inline int ath10k_sdio_mbox_alloc_rx_pkt(struct ath10k_sdio_rx_data *pkt,
+						size_t act_len, size_t full_len,
+						bool part_of_bundle,
+						bool last_in_bundle)
+{
+	pkt->skb = dev_alloc_skb(full_len);
+	if (!pkt->skb)
+		return -ENOMEM;
+
+	pkt->act_len = act_len;
+	pkt->alloc_len = full_len;
+	pkt->part_of_bundle = part_of_bundle;
+	pkt->last_in_bundle = last_in_bundle;
+	pkt->trailer_only = false;
+
+	return 0;
+}
+
+static inline bool is_trailer_only_msg(struct ath10k_sdio_rx_data *pkt)
 {
 	bool trailer_only = false;
 	struct ath10k_htc_hdr *htc_hdr =
@@ -55,9 +87,139 @@ static bool is_trailer_only_msg(struct ath10k_sdio_rx_data *pkt)
 	return trailer_only;
 }
 
-static inline enum ath10k_htc_ep_id pipe_id_to_eid(u8 pipe_id)
+/* sdio/mmc functions */
+
+static inline void ath10k_sdio_set_cmd52_arg(u32 *arg, u8 write, u8 raw,
+					     unsigned int address,
+					     unsigned char val)
 {
-	return (enum ath10k_htc_ep_id)pipe_id;
+	*arg = FIELD_PREP(BIT(31), write) |
+	       FIELD_PREP(BIT(27), raw) |
+	       FIELD_PREP(BIT(26), 1) |
+	       FIELD_PREP(GENMASK(25, 9), address) |
+	       FIELD_PREP(BIT(8), 1) |
+	       FIELD_PREP(GENMASK(7, 0), val);
+}
+
+static int ath10k_sdio_func0_cmd52_wr_byte(struct mmc_card *card,
+					   unsigned int address,
+					   unsigned char byte)
+{
+	struct mmc_command io_cmd;
+
+	memset(&io_cmd, 0, sizeof(io_cmd));
+	ath10k_sdio_set_cmd52_arg(&io_cmd.arg, 1, 0, address, byte);
+	io_cmd.opcode = SD_IO_RW_DIRECT;
+	io_cmd.flags = MMC_RSP_R5 | MMC_CMD_AC;
+
+	return mmc_wait_for_cmd(card->host, &io_cmd, 0);
+}
+
+static int ath10k_sdio_func0_cmd52_rd_byte(struct mmc_card *card,
+					   unsigned int address,
+					   unsigned char *byte)
+{
+	int ret;
+	struct mmc_command io_cmd;
+
+	memset(&io_cmd, 0, sizeof(io_cmd));
+	ath10k_sdio_set_cmd52_arg(&io_cmd.arg, 0, 0, address, 0);
+	io_cmd.opcode = SD_IO_RW_DIRECT;
+	io_cmd.flags = MMC_RSP_R5 | MMC_CMD_AC;
+
+	ret = mmc_wait_for_cmd(card->host, &io_cmd, 0);
+	if (!ret)
+		*byte = io_cmd.resp[0];
+
+	return ret;
+}
+
+static int ath10k_sdio_config(struct ath10k *ar)
+{
+	int ret;
+	unsigned char byte, asyncintdelay = 2;
+	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
+	struct sdio_func *func = ar_sdio->func;
+
+	ath10k_dbg(ar, ATH10K_DBG_BOOT, "SDIO configuration\n");
+
+	sdio_claim_host(func);
+
+	byte = 0;
+	ret = ath10k_sdio_func0_cmd52_rd_byte(func->card,
+					      SDIO_CCCR_DRIVE_STRENGTH,
+					      &byte);
+
+	byte &= ~ATH10K_SDIO_DRIVE_DTSx_MASK;
+	byte |= FIELD_PREP(ATH10K_SDIO_DRIVE_DTSx_MASK,
+			   ATH10K_SDIO_DRIVE_DTSx_TYPE_D);
+
+	ret = ath10k_sdio_func0_cmd52_wr_byte(func->card,
+					      SDIO_CCCR_DRIVE_STRENGTH,
+					      byte);
+
+	byte = 0;
+	ret = ath10k_sdio_func0_cmd52_rd_byte(
+		func->card,
+		CCCR_SDIO_DRIVER_STRENGTH_ENABLE_ADDR,
+		&byte);
+
+	byte |= (CCCR_SDIO_DRIVER_STRENGTH_ENABLE_A |
+		 CCCR_SDIO_DRIVER_STRENGTH_ENABLE_C |
+		 CCCR_SDIO_DRIVER_STRENGTH_ENABLE_D);
+
+	ret = ath10k_sdio_func0_cmd52_wr_byte(
+		func->card,
+		CCCR_SDIO_DRIVER_STRENGTH_ENABLE_ADDR,
+		byte);
+	if (ret) {
+		ath10k_warn(ar, "Failed to enable driver strengt\n");
+		goto err;
+	}
+
+	byte = 0;
+	ret = ath10k_sdio_func0_cmd52_rd_byte(func->card,
+					      CCCR_SDIO_IRQ_MODE_REG_SDIO3,
+					      &byte);
+
+	byte |= SDIO_IRQ_MODE_ASYNC_4BIT_IRQ_SDIO3;
+
+	ret = ath10k_sdio_func0_cmd52_wr_byte(func->card,
+					      CCCR_SDIO_IRQ_MODE_REG_SDIO3,
+					      byte);
+	if (ret) {
+		ath10k_warn(ar, "Failed to enable 4-bit async irq mode %d\n",
+			    ret);
+		goto err;
+	}
+
+	byte = 0;
+	ret = ath10k_sdio_func0_cmd52_rd_byte(func->card,
+					      CCCR_SDIO_ASYNC_INT_DELAY_ADDRESS,
+					      &byte);
+
+	byte &= ~CCCR_SDIO_ASYNC_INT_DELAY_MASK;
+	byte |= FIELD_PREP(CCCR_SDIO_ASYNC_INT_DELAY_MASK, asyncintdelay);
+
+	ret = ath10k_sdio_func0_cmd52_wr_byte(func->card,
+					      CCCR_SDIO_ASYNC_INT_DELAY_ADDRESS,
+					      byte);
+
+	/* give us some time to enable, in ms */
+	func->enable_timeout = 100;
+
+	ret = sdio_set_block_size(func, ar_sdio->mbox_info.block_size);
+	if (ret) {
+		ath10k_warn(ar, "Set sdio block size %d failed: %d)\n",
+			    ar_sdio->mbox_info.block_size, ret);
+		goto err;
+	}
+
+	sdio_release_host(func);
+	return 0;
+err:
+	sdio_release_host(func);
+	return ret;
 }
 
 static int ath10k_sdio_io(struct ath10k *ar, u32 request, u32 addr,
@@ -104,6 +266,8 @@ static int ath10k_sdio_read_write_sync(struct ath10k *ar, u32 addr, u8 *buf,
 	return ath10k_sdio_io(ar, request, addr, buf, len);
 }
 
+/* HIF mbox functions */
+
 static int ath10k_sdio_mbox_rx_process_packet(struct ath10k *ar,
 					      struct ath10k_sdio_rx_data *pkt,
 					      u32 *lookaheads,
@@ -146,33 +310,6 @@ static int ath10k_sdio_mbox_rx_process_packet(struct ath10k *ar,
 	return 0;
 err:
 	return ret;
-}
-
-static inline void ath10k_sdio_mbox_free_rx_pkt(struct ath10k_sdio_rx_data *pkt)
-{
-	dev_kfree_skb(pkt->skb);
-	pkt->skb = NULL;
-	pkt->alloc_len = 0;
-	pkt->act_len = 0;
-	pkt->trailer_only = false;
-}
-
-static inline int ath10k_sdio_mbox_alloc_rx_pkt(struct ath10k_sdio_rx_data *pkt,
-						size_t act_len, size_t full_len,
-						bool part_of_bundle,
-						bool last_in_bundle)
-{
-	pkt->skb = dev_alloc_skb(full_len);
-	if (!pkt->skb)
-		return -ENOMEM;
-
-	pkt->act_len = act_len;
-	pkt->alloc_len = full_len;
-	pkt->part_of_bundle = part_of_bundle;
-	pkt->last_in_bundle = last_in_bundle;
-	pkt->trailer_only = false;
-
-	return 0;
 }
 
 static int ath10k_sdio_mbox_rx_process_packets(struct ath10k *ar,
@@ -695,7 +832,6 @@ out:
 	return ret;
 }
 
-/* process pending interrupts synchronously */
 static int ath10k_sdio_mbox_proc_pending_irqs(struct ath10k *ar,
 					      bool *done)
 {
@@ -810,50 +946,196 @@ static void ath10k_sdio_set_mbox_info(struct ath10k *ar)
 	mbox_info->ext_info[1].htc_ext_sz = ATH10K_HIF_MBOX1_EXT_WIDTH;
 }
 
-static inline void ath10k_sdio_set_cmd52_arg(u32 *arg, u8 write, u8 raw,
-					     unsigned int address,
-					     unsigned char val)
-{
-	*arg = FIELD_PREP(BIT(31), write) |
-	       FIELD_PREP(BIT(27), raw) |
-	       FIELD_PREP(BIT(26), 1) |
-	       FIELD_PREP(GENMASK(25, 9), address) |
-	       FIELD_PREP(BIT(8), 1) |
-	       FIELD_PREP(GENMASK(7, 0), val);
-}
+/* BMI functions */
 
-static int ath10k_sdio_func0_cmd52_wr_byte(struct mmc_card *card,
-					   unsigned int address,
-					   unsigned char byte)
-{
-	struct mmc_command io_cmd;
-
-	memset(&io_cmd, 0, sizeof(io_cmd));
-	ath10k_sdio_set_cmd52_arg(&io_cmd.arg, 1, 0, address, byte);
-	io_cmd.opcode = SD_IO_RW_DIRECT;
-	io_cmd.flags = MMC_RSP_R5 | MMC_CMD_AC;
-
-	return mmc_wait_for_cmd(card->host, &io_cmd, 0);
-}
-
-static int ath10k_sdio_func0_cmd52_rd_byte(struct mmc_card *card,
-					   unsigned int address,
-					   unsigned char *byte)
+static int ath10k_sdio_bmi_credits(struct ath10k *ar)
 {
 	int ret;
-	struct mmc_command io_cmd;
+	u32 addr, *cmd_credits;
+	unsigned long timeout;
 
-	memset(&io_cmd, 0, sizeof(io_cmd));
-	ath10k_sdio_set_cmd52_arg(&io_cmd.arg, 0, 0, address, 0);
-	io_cmd.opcode = SD_IO_RW_DIRECT;
-	io_cmd.flags = MMC_RSP_R5 | MMC_CMD_AC;
+	cmd_credits = kzalloc(sizeof(*cmd_credits), GFP_KERNEL);
+	if (!cmd_credits) {
+		ret = -ENOMEM;
+		goto err;
+	}
 
-	ret = mmc_wait_for_cmd(card->host, &io_cmd, 0);
-	if (!ret)
-		*byte = io_cmd.resp[0];
+	/* Read the counter register to get the command credits */
+	addr = MBOX_COUNT_DEC_ADDRESS + ATH10K_HIF_MBOX_NUM_MAX * 4;
 
+	timeout = jiffies + BMI_COMMUNICATION_TIMEOUT_HZ;
+	while (time_before(jiffies, timeout) && !*cmd_credits) {
+		/* Hit the credit counter with a 4-byte access, the first byte
+		 * read will hit the counter and cause a decrement, while the
+		 * remaining 3 bytes has no effect. The rationale behind this
+		 * is to make all HIF accesses 4-byte aligned.
+		 */
+		ret = ath10k_sdio_read_write_sync(ar, addr,
+						  (u8 *)cmd_credits,
+						  sizeof(*cmd_credits),
+						  HIF_RD_SYNC_BYTE_INC);
+		if (ret) {
+			ath10k_warn(ar,
+				    "Unable to decrement the command credit count register: %d\n",
+				    ret);
+			goto err_free;
+		}
+
+		/* The counter is only 8 bits.
+		 * Ignore anything in the upper 3 bytes
+		 */
+		*cmd_credits &= 0xFF;
+	}
+
+	if (!*cmd_credits) {
+		ath10k_warn(ar, "bmi communication timeout\n");
+		ret = -ETIMEDOUT;
+		goto err_free;
+	}
+
+	return 0;
+err_free:
+	kfree(cmd_credits);
+err:
 	return ret;
 }
+
+static int ath10k_sdio_bmi_get_rx_lookahead(struct ath10k *ar)
+{
+	int ret;
+	unsigned long timeout;
+	u32 *rx_word;
+
+	rx_word = kzalloc(sizeof(*rx_word), GFP_KERNEL);
+	if (!rx_word) {
+		ret = -ENOMEM;
+		goto err;
+	}
+
+	timeout = jiffies + BMI_COMMUNICATION_TIMEOUT_HZ;
+	while ((time_before(jiffies, timeout)) && !*rx_word) {
+		ret = ath10k_sdio_read_write_sync(ar,
+						  MBOX_HOST_INT_STATUS_ADDRESS,
+						  (u8 *)rx_word,
+						  sizeof(*rx_word),
+						  HIF_RD_SYNC_BYTE_INC);
+		if (ret) {
+			ath10k_warn(ar, "unable to read RX_LOOKAHEAD_VALID\n");
+			goto err_free;
+		}
+
+		 /* all we really want is one bit */
+		*rx_word &= 1;
+	}
+
+	if (!*rx_word) {
+		ath10k_warn(ar, "bmi_recv_buf FIFO empty\n");
+		ret = -EINVAL;
+		goto err_free;
+	}
+
+	return 0;
+err_free:
+	kfree(rx_word);
+err:
+	return ret;
+}
+
+static int ath10k_sdio_hif_exchange_bmi_msg(struct ath10k *ar,
+					    void *req, u32 req_len,
+					    void *resp, u32 *resp_len)
+{
+	int ret;
+	u32 addr;
+	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
+
+	if (req) {
+		ret = ath10k_sdio_bmi_credits(ar);
+		if (ret)
+			goto err;
+
+		addr = ar_sdio->mbox_info.htc_addr;
+
+		ret = ath10k_sdio_read_write_sync(ar, addr, req, req_len,
+						  HIF_WR_SYNC_BYTE_INC);
+		if (ret) {
+			ath10k_warn(ar,
+				    "unable to send the bmi data to the device\n");
+			goto err;
+		}
+	}
+
+	if (!resp || !resp_len)
+		/* No response expected */
+		goto out;
+
+	/* During normal bootup, small reads may be required.
+	 * Rather than issue an HIF Read and then wait as the Target
+	 * adds successive bytes to the FIFO, we wait here until
+	 * we know that response data is available.
+	 *
+	 * This allows us to cleanly timeout on an unexpected
+	 * Target failure rather than risk problems at the HIF level.
+	 * In particular, this avoids SDIO timeouts and possibly garbage
+	 * data on some host controllers.  And on an interconnect
+	 * such as Compact Flash (as well as some SDIO masters) which
+	 * does not provide any indication on data timeout, it avoids
+	 * a potential hang or garbage response.
+	 *
+	 * Synchronization is more difficult for reads larger than the
+	 * size of the MBOX FIFO (128B), because the Target is unable
+	 * to push the 129th byte of data until AFTER the Host posts an
+	 * HIF Read and removes some FIFO data.  So for large reads the
+	 * Host proceeds to post an HIF Read BEFORE all the data is
+	 * actually available to read.  Fortunately, large BMI reads do
+	 * not occur in practice -- they're supported for debug/development.
+	 *
+	 * So Host/Target BMI synchronization is divided into these cases:
+	 *  CASE 1: length < 4
+	 *        Should not happen
+	 *
+	 *  CASE 2: 4 <= length <= 128
+	 *        Wait for first 4 bytes to be in FIFO
+	 *        If CONSERVATIVE_BMI_READ is enabled, also wait for
+	 *        a BMI command credit, which indicates that the ENTIRE
+	 *        response is available in the the FIFO
+	 *
+	 *  CASE 3: length > 128
+	 *        Wait for the first 4 bytes to be in FIFO
+	 *
+	 * For most uses, a small timeout should be sufficient and we will
+	 * usually see a response quickly; but there may be some unusual
+	 * (debug) cases of BMI_EXECUTE where we want an larger timeout.
+	 * For now, we use an unbounded busy loop while waiting for
+	 * BMI_EXECUTE.
+	 *
+	 * If BMI_EXECUTE ever needs to support longer-latency execution,
+	 * especially in production, this code needs to be enhanced to sleep
+	 * and yield.  Also note that BMI_COMMUNICATION_TIMEOUT is currently
+	 * a function of Host processor speed.
+	 */
+	ret = ath10k_sdio_bmi_get_rx_lookahead(ar);
+	if (ret)
+		goto err;
+
+	/* We always read from the start of the mbox address */
+	addr = ar_sdio->mbox_info.htc_addr;
+	ret = ath10k_sdio_read_write_sync(ar, addr, resp, *resp_len,
+					  HIF_RD_SYNC_BYTE_INC);
+	if (ret) {
+		ath10k_warn(ar,
+			    "Unable to read the bmi data from the device: %d\n",
+			    ret);
+		goto err;
+	}
+
+out:
+	return 0;
+err:
+	return ret;
+}
+
+/* sdio async handling functions */
 
 static struct ath10k_sdio_bus_request
 *ath10k_sdio_alloc_busreq(struct ath10k *ar)
@@ -930,6 +1212,8 @@ static void ath10k_sdio_write_async_work(struct work_struct *work)
 	spin_unlock_bh(&ar_sdio->wr_async_lock);
 }
 
+/* IRQ handler */
+
 static void ath10k_sdio_irq_handler(struct sdio_func *func)
 {
 	int ret;
@@ -960,6 +1244,8 @@ static void ath10k_sdio_irq_handler(struct sdio_func *func)
 	if (ret && ret != -ECANCELED)
 		ath10k_warn(ar, "SDIO irq status: %x\n", ret);
 }
+
+/* sdio HIF functions */
 
 static int ath10k_sdio_hif_disable_intrs(struct ath10k *ar)
 {
@@ -1368,94 +1654,6 @@ out:
 	return;
 }
 
-static int ath10k_sdio_config(struct ath10k *ar)
-{
-	int ret;
-	unsigned char byte, asyncintdelay = 2;
-	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
-	struct sdio_func *func = ar_sdio->func;
-
-	ath10k_dbg(ar, ATH10K_DBG_BOOT, "SDIO configuration\n");
-
-	sdio_claim_host(func);
-
-	byte = 0;
-	ret = ath10k_sdio_func0_cmd52_rd_byte(func->card,
-					      SDIO_CCCR_DRIVE_STRENGTH,
-					      &byte);
-
-	byte &= ~ATH10K_SDIO_DRIVE_DTSx_MASK;
-	byte |= FIELD_PREP(ATH10K_SDIO_DRIVE_DTSx_MASK,
-			   ATH10K_SDIO_DRIVE_DTSx_TYPE_D);
-
-	ret = ath10k_sdio_func0_cmd52_wr_byte(func->card,
-					      SDIO_CCCR_DRIVE_STRENGTH,
-					      byte);
-
-	byte = 0;
-	ret = ath10k_sdio_func0_cmd52_rd_byte(
-		func->card,
-		CCCR_SDIO_DRIVER_STRENGTH_ENABLE_ADDR,
-		&byte);
-
-	byte |= (CCCR_SDIO_DRIVER_STRENGTH_ENABLE_A |
-		 CCCR_SDIO_DRIVER_STRENGTH_ENABLE_C |
-		 CCCR_SDIO_DRIVER_STRENGTH_ENABLE_D);
-
-	ret = ath10k_sdio_func0_cmd52_wr_byte(
-		func->card,
-		CCCR_SDIO_DRIVER_STRENGTH_ENABLE_ADDR,
-		byte);
-	if (ret) {
-		ath10k_warn(ar, "Failed to enable driver strengt\n");
-		goto err;
-	}
-
-	byte = 0;
-	ret = ath10k_sdio_func0_cmd52_rd_byte(func->card,
-					      CCCR_SDIO_IRQ_MODE_REG_SDIO3,
-					      &byte);
-
-	byte |= SDIO_IRQ_MODE_ASYNC_4BIT_IRQ_SDIO3;
-
-	ret = ath10k_sdio_func0_cmd52_wr_byte(func->card,
-					      CCCR_SDIO_IRQ_MODE_REG_SDIO3,
-					      byte);
-	if (ret) {
-		ath10k_warn(ar, "Failed to enable 4-bit async irq mode %d\n",
-			    ret);
-		goto err;
-	}
-
-	byte = 0;
-	ret = ath10k_sdio_func0_cmd52_rd_byte(func->card,
-					      CCCR_SDIO_ASYNC_INT_DELAY_ADDRESS,
-					      &byte);
-
-	byte &= ~CCCR_SDIO_ASYNC_INT_DELAY_MASK;
-	byte |= FIELD_PREP(CCCR_SDIO_ASYNC_INT_DELAY_MASK, asyncintdelay);
-
-	ret = ath10k_sdio_func0_cmd52_wr_byte(func->card,
-					      CCCR_SDIO_ASYNC_INT_DELAY_ADDRESS,
-					      byte);
-
-	/* give us some time to enable, in ms */
-	func->enable_timeout = 100;
-
-	ret = sdio_set_block_size(func, ar_sdio->mbox_info.block_size);
-	if (ret) {
-		ath10k_warn(ar, "Set sdio block size %d failed: %d)\n",
-			    ar_sdio->mbox_info.block_size, ret);
-		goto err;
-	}
-
-	sdio_release_host(func);
-	return 0;
-err:
-	sdio_release_host(func);
-	return ret;
-}
-
 static int ath10k_sdio_diag_write_mem(struct ath10k *ar, u32 address,
 				      const void *data, int nbytes)
 {
@@ -1475,193 +1673,6 @@ static int ath10k_sdio_diag_write_mem(struct ath10k *ar, u32 address,
 	/* set window register, which starts the write cycle */
 	return ath10k_set_addrwin_reg(ar, MBOX_WINDOW_WRITE_ADDR_ADDRESS,
 				      address);
-}
-
-static int ath10k_sdio_bmi_credits(struct ath10k *ar)
-{
-	int ret;
-	u32 addr, *cmd_credits;
-	unsigned long timeout;
-
-	cmd_credits = kzalloc(sizeof(*cmd_credits), GFP_KERNEL);
-	if (!cmd_credits) {
-		ret = -ENOMEM;
-		goto err;
-	}
-
-	/* Read the counter register to get the command credits */
-	addr = MBOX_COUNT_DEC_ADDRESS + ATH10K_HIF_MBOX_NUM_MAX * 4;
-
-	timeout = jiffies + BMI_COMMUNICATION_TIMEOUT_HZ;
-	while (time_before(jiffies, timeout) && !*cmd_credits) {
-		/* Hit the credit counter with a 4-byte access, the first byte
-		 * read will hit the counter and cause a decrement, while the
-		 * remaining 3 bytes has no effect. The rationale behind this
-		 * is to make all HIF accesses 4-byte aligned.
-		 */
-		ret = ath10k_sdio_read_write_sync(ar, addr,
-						  (u8 *)cmd_credits,
-						  sizeof(*cmd_credits),
-						  HIF_RD_SYNC_BYTE_INC);
-		if (ret) {
-			ath10k_warn(ar,
-				    "Unable to decrement the command credit count register: %d\n",
-				    ret);
-			goto err_free;
-		}
-
-		/* The counter is only 8 bits.
-		 * Ignore anything in the upper 3 bytes
-		 */
-		*cmd_credits &= 0xFF;
-	}
-
-	if (!*cmd_credits) {
-		ath10k_warn(ar, "bmi communication timeout\n");
-		ret = -ETIMEDOUT;
-		goto err_free;
-	}
-
-	return 0;
-err_free:
-	kfree(cmd_credits);
-err:
-	return ret;
-}
-
-static int ath10k_sdio_bmi_get_rx_lookahead(struct ath10k *ar)
-{
-	int ret;
-	unsigned long timeout;
-	u32 *rx_word;
-
-	rx_word = kzalloc(sizeof(*rx_word), GFP_KERNEL);
-	if (!rx_word) {
-		ret = -ENOMEM;
-		goto err;
-	}
-
-	timeout = jiffies + BMI_COMMUNICATION_TIMEOUT_HZ;
-	while ((time_before(jiffies, timeout)) && !*rx_word) {
-		ret = ath10k_sdio_read_write_sync(ar,
-						  MBOX_HOST_INT_STATUS_ADDRESS,
-						  (u8 *)rx_word,
-						  sizeof(*rx_word),
-						  HIF_RD_SYNC_BYTE_INC);
-		if (ret) {
-			ath10k_warn(ar, "unable to read RX_LOOKAHEAD_VALID\n");
-			goto err_free;
-		}
-
-		 /* all we really want is one bit */
-		*rx_word &= 1;
-	}
-
-	if (!*rx_word) {
-		ath10k_warn(ar, "bmi_recv_buf FIFO empty\n");
-		ret = -EINVAL;
-		goto err_free;
-	}
-
-	return 0;
-err_free:
-	kfree(rx_word);
-err:
-	return ret;
-}
-
-static int ath10k_sdio_hif_exchange_bmi_msg(struct ath10k *ar,
-					    void *req, u32 req_len,
-					    void *resp, u32 *resp_len)
-{
-	int ret;
-	u32 addr;
-	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
-
-	if (req) {
-		ret = ath10k_sdio_bmi_credits(ar);
-		if (ret)
-			goto err;
-
-		addr = ar_sdio->mbox_info.htc_addr;
-
-		ret = ath10k_sdio_read_write_sync(ar, addr, req, req_len,
-						  HIF_WR_SYNC_BYTE_INC);
-		if (ret) {
-			ath10k_warn(ar,
-				    "unable to send the bmi data to the device\n");
-			goto err;
-		}
-	}
-
-	if (!resp || !resp_len)
-		/* No response expected */
-		goto out;
-
-	/* During normal bootup, small reads may be required.
-	 * Rather than issue an HIF Read and then wait as the Target
-	 * adds successive bytes to the FIFO, we wait here until
-	 * we know that response data is available.
-	 *
-	 * This allows us to cleanly timeout on an unexpected
-	 * Target failure rather than risk problems at the HIF level.
-	 * In particular, this avoids SDIO timeouts and possibly garbage
-	 * data on some host controllers.  And on an interconnect
-	 * such as Compact Flash (as well as some SDIO masters) which
-	 * does not provide any indication on data timeout, it avoids
-	 * a potential hang or garbage response.
-	 *
-	 * Synchronization is more difficult for reads larger than the
-	 * size of the MBOX FIFO (128B), because the Target is unable
-	 * to push the 129th byte of data until AFTER the Host posts an
-	 * HIF Read and removes some FIFO data.  So for large reads the
-	 * Host proceeds to post an HIF Read BEFORE all the data is
-	 * actually available to read.  Fortunately, large BMI reads do
-	 * not occur in practice -- they're supported for debug/development.
-	 *
-	 * So Host/Target BMI synchronization is divided into these cases:
-	 *  CASE 1: length < 4
-	 *        Should not happen
-	 *
-	 *  CASE 2: 4 <= length <= 128
-	 *        Wait for first 4 bytes to be in FIFO
-	 *        If CONSERVATIVE_BMI_READ is enabled, also wait for
-	 *        a BMI command credit, which indicates that the ENTIRE
-	 *        response is available in the the FIFO
-	 *
-	 *  CASE 3: length > 128
-	 *        Wait for the first 4 bytes to be in FIFO
-	 *
-	 * For most uses, a small timeout should be sufficient and we will
-	 * usually see a response quickly; but there may be some unusual
-	 * (debug) cases of BMI_EXECUTE where we want an larger timeout.
-	 * For now, we use an unbounded busy loop while waiting for
-	 * BMI_EXECUTE.
-	 *
-	 * If BMI_EXECUTE ever needs to support longer-latency execution,
-	 * especially in production, this code needs to be enhanced to sleep
-	 * and yield.  Also note that BMI_COMMUNICATION_TIMEOUT is currently
-	 * a function of Host processor speed.
-	 */
-	ret = ath10k_sdio_bmi_get_rx_lookahead(ar);
-	if (ret)
-		goto err;
-
-	/* We always read from the start of the mbox address */
-	addr = ar_sdio->mbox_info.htc_addr;
-	ret = ath10k_sdio_read_write_sync(ar, addr, resp, *resp_len,
-					  HIF_RD_SYNC_BYTE_INC);
-	if (ret) {
-		ath10k_warn(ar,
-			    "Unable to read the bmi data from the device: %d\n",
-			    ret);
-		goto err;
-	}
-
-out:
-	return 0;
-err:
-	return ret;
 }
 
 static void ath10k_sdio_hif_stop(struct ath10k *ar)
