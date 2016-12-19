@@ -1060,7 +1060,9 @@ static int ath10k_sdio_bmi_exchange_msg(struct ath10k *ar,
 
 		addr = ar_sdio->mbox_info.htc_addr;
 
-		ret = ath10k_sdio_read_write_sync(ar, addr, req, req_len,
+		memcpy(ar_sdio->bmi_buf, req, req_len);
+		ret = ath10k_sdio_read_write_sync(ar, addr, ar_sdio->bmi_buf,
+						  req_len,
 						  HIF_WR_SYNC_BYTE_INC);
 		if (ret) {
 			ath10k_warn(ar,
@@ -1124,7 +1126,8 @@ static int ath10k_sdio_bmi_exchange_msg(struct ath10k *ar,
 
 	/* We always read from the start of the mbox address */
 	addr = ar_sdio->mbox_info.htc_addr;
-	ret = ath10k_sdio_read_write_sync(ar, addr, resp, *resp_len,
+	ret = ath10k_sdio_read_write_sync(ar, addr, ar_sdio->bmi_buf,
+					  *resp_len,
 					  HIF_RD_SYNC_BYTE_INC);
 	if (ret) {
 		ath10k_warn(ar,
@@ -1132,6 +1135,8 @@ static int ath10k_sdio_bmi_exchange_msg(struct ath10k *ar,
 			    ret);
 		goto err;
 	}
+
+	memcpy(resp, ar_sdio->bmi_buf, *resp_len);
 
 out:
 	return 0;
@@ -1937,6 +1942,12 @@ static int ath10k_sdio_probe(struct sdio_func *func,
 		goto err_free_proc_reg;
 	}
 
+	ar_sdio->bmi_buf = kzalloc(BMI_MAX_CMDBUF_SIZE, GFP_KERNEL);
+	if (!ar_sdio->bmi_buf) {
+		ret = -ENOMEM;
+		goto err_free_en_reg;
+	}
+
 	ar_sdio->func = func;
 	sdio_set_drvdata(func, ar_sdio);
 
@@ -1954,7 +1965,7 @@ static int ath10k_sdio_probe(struct sdio_func *func,
 	ar_sdio->workqueue = create_singlethread_workqueue("ath10k_sdio_wq");
 	if (!ar_sdio->workqueue) {
 		ret = -ENOMEM;
-		goto err_free_en_reg;
+		goto err_free_bmi_buf;
 	}
 
 	init_waitqueue_head(&ar_sdio->irq_wq);
@@ -1986,6 +1997,8 @@ static int ath10k_sdio_probe(struct sdio_func *func,
 
 err_free_wq:
 	destroy_workqueue(ar_sdio->workqueue);
+err_free_bmi_buf:
+	kfree(ar_sdio->bmi_buf);
 err_free_en_reg:
 	kfree(ar_sdio->irq_data.irq_en_reg);
 err_free_proc_reg:

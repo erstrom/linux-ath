@@ -276,6 +276,9 @@ struct ath10k_sdio {
 	struct ath10k *ar;
 	struct ath10k_sdio_irq_data irq_data;
 
+	/* temporary buffer for BMI requests */
+	u8 *bmi_buf;
+
 	wait_queue_head_t irq_wq;
 
 	bool is_disabled;
