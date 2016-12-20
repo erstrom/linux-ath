@@ -786,9 +786,8 @@ static int ath10k_sdio_mbox_read_int_status(struct ath10k *ar,
 	u8 htc_mbox = FIELD_PREP(ATH10K_HTC_MAILBOX_MASK, 1);
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct ath10k_sdio_irq_data *irq_data = &ar_sdio->irq_data;
-	struct ath10k_sdio_irq_proc_registers *irq_proc_reg =
-		irq_data->irq_proc_reg;
-	struct ath10k_sdio_irq_enable_reg *irq_en_reg = irq_data->irq_en_reg;
+	struct ath10k_sdio_irq_proc_regs *irq_proc_reg = irq_data->irq_proc_reg;
+	struct ath10k_sdio_irq_enable_regs *irq_en_reg = irq_data->irq_en_reg;
 
 	mutex_lock(&irq_data->mtx);
 
@@ -1270,7 +1269,7 @@ static int ath10k_sdio_hif_disable_intrs(struct ath10k *ar)
 	int ret;
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct ath10k_sdio_irq_data *irq_data = &ar_sdio->irq_data;
-	struct ath10k_sdio_irq_enable_reg *regs = irq_data->irq_en_reg;
+	struct ath10k_sdio_irq_enable_regs *regs = irq_data->irq_en_reg;
 
 	mutex_lock(&irq_data->mtx);
 	memset(regs, 0, sizeof(*regs));
@@ -1391,14 +1390,14 @@ static int ath10k_sdio_hif_enable_intrs(struct ath10k *ar)
 	int ret;
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct ath10k_sdio_irq_data *irq_data = &ar_sdio->irq_data;
-	struct ath10k_sdio_irq_enable_reg *regs = irq_data->irq_en_reg;
+	struct ath10k_sdio_irq_enable_regs *regs = irq_data->irq_en_reg;
 
 	mutex_lock(&irq_data->mtx);
 
 	/* Enable all but CPU interrupts */
 	regs->int_status_en = FIELD_PREP(MBOX_INT_STATUS_ENABLE_ERROR_MASK, 1) |
-			     FIELD_PREP(MBOX_INT_STATUS_ENABLE_CPU_MASK, 1) |
-			     FIELD_PREP(MBOX_INT_STATUS_ENABLE_COUNTER_MASK, 1);
+			      FIELD_PREP(MBOX_INT_STATUS_ENABLE_CPU_MASK, 1) |
+			      FIELD_PREP(MBOX_INT_STATUS_ENABLE_COUNTER_MASK, 1);
 
 	/* NOTE: There are some cases where HIF can do detection of
 	 * pending mbox messages which is disabled now.
@@ -1628,7 +1627,7 @@ static void ath10k_sdio_irq_disable(struct ath10k *ar)
 	int ret;
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct ath10k_sdio_irq_data *irq_data = &ar_sdio->irq_data;
-	struct ath10k_sdio_irq_enable_reg *regs = irq_data->irq_en_reg;
+	struct ath10k_sdio_irq_enable_regs *regs = irq_data->irq_en_reg;
 	struct ath10k_sdio_bus_request *bus_req;
 	struct sk_buff *skb;
 	struct completion irqs_disabled_comp;
@@ -1949,7 +1948,7 @@ static int ath10k_sdio_probe(struct sdio_func *func,
 	ar_sdio = ath10k_sdio_priv(ar);
 
 	ar_sdio->irq_data.irq_proc_reg =
-		kzalloc(sizeof(struct ath10k_sdio_irq_proc_registers),
+		kzalloc(sizeof(struct ath10k_sdio_irq_proc_regs),
 			GFP_KERNEL);
 	if (!ar_sdio->irq_data.irq_proc_reg) {
 		ret = -ENOMEM;
@@ -1957,7 +1956,7 @@ static int ath10k_sdio_probe(struct sdio_func *func,
 	}
 
 	ar_sdio->irq_data.irq_en_reg =
-		kzalloc(sizeof(struct ath10k_sdio_irq_enable_reg),
+		kzalloc(sizeof(struct ath10k_sdio_irq_enable_regs),
 			GFP_KERNEL);
 	if (!ar_sdio->irq_data.irq_en_reg) {
 		ret = -ENOMEM;

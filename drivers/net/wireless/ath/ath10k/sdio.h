@@ -209,7 +209,7 @@ struct ath10k_sdio_rx_data {
 	(HIF_READ | HIF_SYNCHRONOUS |					\
 	 HIF_BLOCK_BASIS | HIF_FIXED_ADDRESS)
 
-struct ath10k_sdio_irq_proc_registers {
+struct ath10k_sdio_irq_proc_regs {
 	u8 host_int_status;
 	u8 cpu_int_status;
 	u8 error_int_status;
@@ -222,7 +222,7 @@ struct ath10k_sdio_irq_proc_registers {
 	__le32 rx_gmbox_lookahead_alias[2];
 };
 
-struct ath10k_sdio_irq_enable_reg {
+struct ath10k_sdio_irq_enable_regs {
 	u8 int_status_en;
 	u8 cpu_int_status_en;
 	u8 err_int_status_en;
@@ -237,8 +237,8 @@ struct ath10k_sdio_irq_data {
 	 * can be held while calling these functions.
 	 */
 	struct mutex mtx;
-	struct ath10k_sdio_irq_proc_registers *irq_proc_reg;
-	struct ath10k_sdio_irq_enable_reg *irq_en_reg;
+	struct ath10k_sdio_irq_proc_regs *irq_proc_reg;
+	struct ath10k_sdio_irq_enable_regs *irq_en_reg;
 };
 
 struct ath10k_mbox_ext_info {
