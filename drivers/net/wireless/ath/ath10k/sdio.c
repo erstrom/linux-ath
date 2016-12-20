@@ -1472,18 +1472,31 @@ static int ath10k_sdio_hif_set_addrwin_reg(struct ath10k *ar, u32 reg_addr,
 					   u32 addr)
 {
 	int ret;
+	u32 *tmp_addr;
 
-	ret = ath10k_sdio_read_write_sync(ar, reg_addr, (u8 *)(&addr),
+	tmp_addr = kmalloc(sizeof(addr), GFP_KERNEL);
+	if (!tmp_addr) {
+		ath10k_warn(ar, "Unable to allocate tmp buf for addrwin reg\n");
+		ret = -ENOMEM;
+		goto err;
+	}
+
+	*tmp_addr = addr;
+	ret = ath10k_sdio_read_write_sync(ar, reg_addr, (u8 *)tmp_addr,
 					  4, HIF_WR_SYNC_BYTE_INC);
 
 	if (ret) {
 		ath10k_warn(ar,
 			    "%s: failed to write 0x%x to window reg: 0x%X\n",
 			    __func__, addr, reg_addr);
-		return ret;
+		goto err_free;
 	}
 
 	return 0;
+err_free:
+	kfree(tmp_addr);
+err:
+	return ret;
 }
 
 static int ath10k_sdio_hif_diag_read(struct ath10k *ar, u32 address, void *buf,
