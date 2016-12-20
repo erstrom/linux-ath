@@ -550,6 +550,13 @@ err:
 	return ret;
 }
 
+/* This is the timeout for mailbox processing done in the sdio irq
+ * handler. The timeout is deliberately set quite high since SDIO dump logs
+ * over serial port can/will add a substantial overhead to the processing
+ * (if enabled).
+ */
+#define SDIO_MBOX_PROCESSING_TIMEOUT_HZ (20 * HZ)
+
 static int ath10k_sdio_mbox_rxmsg_pending_handler(struct ath10k *ar,
 						  u32 msg_lookahead, bool *done)
 {
@@ -557,6 +564,7 @@ static int ath10k_sdio_mbox_rxmsg_pending_handler(struct ath10k *ar,
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	u32 lookaheads[ATH10K_SDIO_MAX_RX_MSGS];
 	int n_lookaheads = 1;
+	unsigned long timeout;
 
 	*done = true;
 
@@ -565,7 +573,8 @@ static int ath10k_sdio_mbox_rxmsg_pending_handler(struct ath10k *ar,
 	 */
 	lookaheads[0] = msg_lookahead;
 
-	for (;;) {
+	timeout = jiffies + SDIO_MBOX_PROCESSING_TIMEOUT_HZ;
+	while (time_before(jiffies, timeout)) {
 		/* Try to allocate as many HTC RX packets indicated by
 		 * n_lookaheads.
 		 */
