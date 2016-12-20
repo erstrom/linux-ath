@@ -1507,6 +1507,8 @@ err:
 	return ret;
 }
 
+/* HIF diagnostics */
+
 static int ath10k_sdio_hif_diag_read(struct ath10k *ar, u32 address, void *buf,
 				     size_t buf_len)
 {
@@ -1556,6 +1558,30 @@ out_free:
 out:
 	return ret;
 }
+
+static int ath10k_sdio_hif_diag_write_mem(struct ath10k *ar, u32 address,
+					  const void *data, int nbytes)
+{
+	int ret;
+
+	/* set write data */
+	ret = ath10k_sdio_read_write_sync(ar, MBOX_WINDOW_DATA_ADDRESS,
+					  (u8 *)data, nbytes,
+					  HIF_WR_SYNC_BYTE_INC);
+	if (ret) {
+		ath10k_warn(ar,
+			    "%s: failed to write 0x%p to window data addr\n",
+			    __func__, data);
+		return ret;
+	}
+
+	/* set window register, which starts the write cycle */
+	return ath10k_sdio_hif_set_addrwin_reg(ar,
+					       MBOX_WINDOW_WRITE_ADDR_ADDRESS,
+					       address);
+}
+
+/* HIF start/stop */
 
 static int ath10k_sdio_hif_start(struct ath10k *ar)
 {
@@ -1684,28 +1710,6 @@ static void ath10k_sdio_irq_disable(struct ath10k *ar)
 	sdio_release_host(ar_sdio->func);
 out:
 	return;
-}
-
-static int ath10k_sdio_hif_diag_write_mem(struct ath10k *ar, u32 address,
-					  const void *data, int nbytes)
-{
-	int ret;
-
-	/* set write data */
-	ret = ath10k_sdio_read_write_sync(ar, MBOX_WINDOW_DATA_ADDRESS,
-					  (u8 *)data, nbytes,
-					  HIF_WR_SYNC_BYTE_INC);
-	if (ret) {
-		ath10k_warn(ar,
-			    "%s: failed to write 0x%p to window data addr\n",
-			    __func__, data);
-		return ret;
-	}
-
-	/* set window register, which starts the write cycle */
-	return ath10k_sdio_hif_set_addrwin_reg(ar,
-					       MBOX_WINDOW_WRITE_ADDR_ADDRESS,
-					       address);
 }
 
 static void ath10k_sdio_hif_stop(struct ath10k *ar)
