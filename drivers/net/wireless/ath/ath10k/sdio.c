@@ -1354,15 +1354,15 @@ static int ath10k_sdio_hif_tx_sg(struct ath10k *ar, u8 pipe_id,
 	struct ath10k_sdio_bus_request *bus_req;
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 
-	bus_req = ath10k_sdio_alloc_busreq(ar);
-
-	if (!bus_req) {
-		ath10k_warn(ar, "Unable to alloc bus request for TX data\n");
-		ret = -ENOMEM;
-		goto err;
-	}
-
 	for (i = 0; i < n_items; i++) {
+		bus_req = ath10k_sdio_alloc_busreq(ar);
+		if (!bus_req) {
+			ath10k_warn(ar,
+				    "Unable to alloc bus request for TX data\n");
+			ret = -ENOMEM;
+			goto err;
+		}
+
 		bus_req->skb = items[i].transfer_context;
 		bus_req->request = HIF_WRITE;
 		bus_req->eid = pipe_id_to_eid(pipe_id);
