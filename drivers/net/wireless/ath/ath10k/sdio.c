@@ -1356,7 +1356,8 @@ static int ath10k_sdio_hif_tx_sg(struct ath10k *ar, u8 pipe_id,
 
 	bus_req = ath10k_sdio_alloc_busreq(ar);
 
-	if (WARN_ON_ONCE(!bus_req)) {
+	if (!bus_req) {
+		ath10k_warn(ar, "Unable to alloc bus request for TX data\n");
 		ret = -ENOMEM;
 		goto err;
 	}
