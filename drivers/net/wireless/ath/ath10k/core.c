@@ -1609,47 +1609,43 @@ err:
 	return ret;
 }
 
+static void ath10k_core_get_fw_name(struct ath10k *ar, char *fw_name,
+				    int fw_api)
+{
+	if ((ar->hif.bus != ATH10K_BUS_PCI) && (ar->hif.bus != ATH10K_BUS_AHB))
+		snprintf(fw_name, ATH10K_FW_FILE_NAME_MAX_LEN, "%s-%s-%d.bin",
+			 ATH10K_FW_FILE_BASE, ath10k_bus_str(ar->hif.bus),
+			 fw_api);
+	else
+		snprintf(fw_name, ATH10K_FW_FILE_NAME_MAX_LEN, "%s-%d.bin",
+			 ATH10K_FW_FILE_BASE, fw_api);
+}
+
 static int ath10k_core_fetch_firmware_files(struct ath10k *ar)
 {
-	int ret;
+	int ret, i;
+	char fw_name[ATH10K_FW_FILE_NAME_MAX_LEN];
 
 	/* calibration file is optional, don't check for any errors */
 	ath10k_fetch_cal_file(ar);
 
-	ar->fw_api = 5;
-	ath10k_dbg(ar, ATH10K_DBG_BOOT, "trying fw api %d\n", ar->fw_api);
+	for (i = 5; i >= 2; i--) {
+		ar->fw_api = i;
+		ath10k_dbg(ar, ATH10K_DBG_BOOT, "trying fw api %d\n",
+			   ar->fw_api);
 
-	ret = ath10k_core_fetch_firmware_api_n(ar, ATH10K_FW_API5_FILE);
-	if (ret == 0)
-		goto success;
-
-	ar->fw_api = 4;
-	ath10k_dbg(ar, ATH10K_DBG_BOOT, "trying fw api %d\n", ar->fw_api);
-
-	ret = ath10k_core_fetch_firmware_api_n(ar, ATH10K_FW_API4_FILE);
-	if (ret == 0)
-		goto success;
-
-	ar->fw_api = 3;
-	ath10k_dbg(ar, ATH10K_DBG_BOOT, "trying fw api %d\n", ar->fw_api);
-
-	ret = ath10k_core_fetch_firmware_api_n(ar, ATH10K_FW_API3_FILE);
-	if (ret == 0)
-		goto success;
-
-	ar->fw_api = 2;
-	ath10k_dbg(ar, ATH10K_DBG_BOOT, "trying fw api %d\n", ar->fw_api);
-
-	ret = ath10k_core_fetch_firmware_api_n(ar, ATH10K_FW_API2_FILE);
-	if (ret == 0)
-		goto success;
-
-	ar->fw_api = 1;
-	ath10k_dbg(ar, ATH10K_DBG_BOOT, "trying fw api %d\n", ar->fw_api);
+		ath10k_core_get_fw_name(ar, fw_name, ar->fw_api);
+		ret = ath10k_core_fetch_firmware_api_n(ar, fw_name);
+		if (!ret)
+			goto success;
+	}
 
 	ret = ath10k_core_fetch_firmware_api_1(ar);
-	if (ret)
-		return ret;
+	if (ret == 0)
+		goto success;
+
+	/* We end up here if we couldn't fetch any firmware */
+	return ret;
 
 success:
 	ath10k_dbg(ar, ATH10K_DBG_BOOT, "using fw api %d\n", ar->fw_api);
