@@ -789,7 +789,7 @@ int ath10k_htt_h2t_aggr_cfg_msg(struct ath10k_htt *htt,
 
 	/* Firmware defaults are: amsdu = 3 and ampdu = 64 */
 
-	if (max_subfrms_ampdu == 0 || max_subfrms_ampdu > 64)
+	if (max_subfrms_ampdu > 64)
 		return -EINVAL;
 
 	if (max_subfrms_amsdu == 0 || max_subfrms_amsdu > 31)

@@ -1615,8 +1615,13 @@ static int ath10k_core_init_firmware_features(struct ath10k *ar)
 		return -EINVAL;
 	}
 
-	ar->htt.max_num_amsdu = ATH10K_HTT_MAX_NUM_AMSDU_DEFAULT;
-	ar->htt.max_num_ampdu = ATH10K_HTT_MAX_NUM_AMPDU_DEFAULT;
+	if (ath10k_is_high_latency(ar)) {
+		ar->htt.max_num_amsdu = ATH10K_HTT_MAX_NUM_AMSDU_HL;
+		ar->htt.max_num_ampdu = ATH10K_HTT_MAX_NUM_AMPDU_HL;
+	} else {
+		ar->htt.max_num_amsdu = ATH10K_HTT_MAX_NUM_AMSDU_DEFAULT;
+		ar->htt.max_num_ampdu = ATH10K_HTT_MAX_NUM_AMPDU_DEFAULT;
+	}
 
 	if (rawmode) {
 		if (!test_bit(ATH10K_FW_FEATURE_RAW_MODE_SUPPORT,
