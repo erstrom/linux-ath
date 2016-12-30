@@ -1777,6 +1777,10 @@ struct htt_rx_desc {
 #define ATH10K_HTT_MAX_NUM_AMSDU_DEFAULT 3
 #define ATH10K_HTT_MAX_NUM_AMPDU_DEFAULT 64
 
+/* Disable frame aggregation for high latency devices */
+#define ATH10K_HTT_MAX_NUM_AMSDU_HL 1
+#define ATH10K_HTT_MAX_NUM_AMPDU_HL 1
+
 int ath10k_htt_connect(struct ath10k_htt *htt);
 int ath10k_htt_init(struct ath10k *ar);
 int ath10k_htt_setup(struct ath10k_htt *htt);
