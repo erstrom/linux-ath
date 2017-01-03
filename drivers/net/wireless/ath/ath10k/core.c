@@ -196,6 +196,25 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 			.board_ext_size = QCA9377_BOARD_EXT_DATA_SZ,
 		},
 	},
+	{
+		.id = QCA9377_HW_1_1_DEV_VERSION,
+		.dev_id = QCA9377_1_0_DEVICE_ID,
+		.name = "qca9377 hw1.1 usb",
+		.patch_load_addr = QCA9377_HW_1_0_PATCH_LOAD_ADDR,
+		.uart_pin = 6,
+		.otp_exe_param = 0,
+		.channel_counters_freq_hz = 88000,
+		.max_probe_resp_desc_thres = 0,
+		.fw = {
+			.dir = QCA9377_HW_1_0_FW_DIR,
+			.board = QCA9377_HW_1_0_BOARD_DATA_FILE_USB,
+			.board_size = QCA9377_BOARD_DATA_SZ,
+			.board_ext_size = QCA9377_BOARD_EXT_DATA_SZ,
+		},
+		.max_num_peers = TARGET_QCA9377_HL_NUM_PEERS,
+		.is_high_latency = true,
+		.bus = ATH10K_BUS_USB,
+	},
 };
 
 static const char *const ath10k_core_fw_feature_str[] = {
@@ -1739,9 +1758,19 @@ static int ath10k_init_hw_params(struct ath10k *ar)
 	for (i = 0; i < ARRAY_SIZE(ath10k_hw_params_list); i++) {
 		hw_params = &ath10k_hw_params_list[i];
 
-		if (hw_params->id == ar->target_version &&
-		    hw_params->dev_id == ar->dev_id)
-			break;
+		if (ar->is_high_latency) {
+			/* High latency devices will use different fw depending
+			 * on if it is a USB or SDIO device.
+			 */
+			if (hw_params->bus == ar->hif.bus &&
+			    hw_params->id == ar->target_version &&
+			    hw_params->dev_id == ar->dev_id)
+				break;
+		} else {
+			if (hw_params->id == ar->target_version &&
+			    hw_params->dev_id == ar->dev_id)
+				break;
+		}
 	}
 
 	if (i == ARRAY_SIZE(ath10k_hw_params_list)) {
@@ -1815,6 +1844,8 @@ static void ath10k_core_restart(struct work_struct *work)
 
 static int ath10k_core_init_firmware_features(struct ath10k *ar)
 {
+	int max_num_peers;
+
 	if (test_bit(ATH10K_FW_FEATURE_WMI_10_2, ar->fw_features) &&
 	    !test_bit(ATH10K_FW_FEATURE_WMI_10X, ar->fw_features)) {
 		ath10k_err(ar, "feature bits corrupted: 10.2 feature requires 10.x feature to be set as well");
@@ -1898,7 +1929,7 @@ static int ath10k_core_init_firmware_features(struct ath10k *ar)
 
 	switch (ar->wmi.op_version) {
 	case ATH10K_FW_WMI_OP_VERSION_MAIN:
-		ar->max_num_peers = TARGET_NUM_PEERS;
+		max_num_peers = TARGET_NUM_PEERS;
 		ar->max_num_stations = TARGET_NUM_STATIONS;
 		ar->max_num_vdevs = TARGET_NUM_VDEVS;
 		ar->htt.max_num_pending_tx = TARGET_NUM_MSDU_DESC;
@@ -1909,7 +1940,7 @@ static int ath10k_core_init_firmware_features(struct ath10k *ar)
 	case ATH10K_FW_WMI_OP_VERSION_10_1:
 	case ATH10K_FW_WMI_OP_VERSION_10_2:
 	case ATH10K_FW_WMI_OP_VERSION_10_2_4:
-		ar->max_num_peers = TARGET_10X_NUM_PEERS;
+		max_num_peers = TARGET_10X_NUM_PEERS;
 		ar->max_num_stations = TARGET_10X_NUM_STATIONS;
 		ar->max_num_vdevs = TARGET_10X_NUM_VDEVS;
 		ar->htt.max_num_pending_tx = TARGET_10X_NUM_MSDU_DESC;
@@ -1917,7 +1948,7 @@ static int ath10k_core_init_firmware_features(struct ath10k *ar)
 		ar->max_spatial_stream = WMI_MAX_SPATIAL_STREAM;
 		break;
 	case ATH10K_FW_WMI_OP_VERSION_TLV:
-		ar->max_num_peers = TARGET_TLV_NUM_PEERS;
+		max_num_peers = TARGET_TLV_NUM_PEERS;
 		ar->max_num_stations = TARGET_TLV_NUM_STATIONS;
 		ar->max_num_vdevs = TARGET_TLV_NUM_VDEVS;
 		ar->max_num_tdls_vdevs = TARGET_TLV_NUM_TDLS_VDEVS;
@@ -1928,7 +1959,7 @@ static int ath10k_core_init_firmware_features(struct ath10k *ar)
 		ar->max_spatial_stream = WMI_MAX_SPATIAL_STREAM;
 		break;
 	case ATH10K_FW_WMI_OP_VERSION_10_4:
-		ar->max_num_peers = TARGET_10_4_NUM_PEERS;
+		max_num_peers = TARGET_10_4_NUM_PEERS;
 		ar->max_num_stations = TARGET_10_4_NUM_STATIONS;
 		ar->num_active_peers = TARGET_10_4_ACTIVE_PEERS;
 		ar->max_num_vdevs = TARGET_10_4_NUM_VDEVS;
@@ -1939,9 +1970,15 @@ static int ath10k_core_init_firmware_features(struct ath10k *ar)
 		break;
 	case ATH10K_FW_WMI_OP_VERSION_UNSET:
 	case ATH10K_FW_WMI_OP_VERSION_MAX:
+	default:
 		WARN_ON(1);
 		return -EINVAL;
 	}
+
+	if (ar->hw_params.max_num_peers)
+		ar->max_num_peers = ar->hw_params.max_num_peers;
+	else
+		ar->max_num_peers = max_num_peers;
 
 	/* Backwards compatibility for firmwares without
 	 * ATH10K_FW_IE_HTT_OP_VERSION.

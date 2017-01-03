@@ -20,6 +20,13 @@
 
 #include "targaddrs.h"
 
+enum ath10k_bus {
+	ATH10K_BUS_PCI,
+	ATH10K_BUS_AHB,
+	ATH10K_BUS_SDIO,
+	ATH10K_BUS_USB,
+};
+
 #define ATH10K_FW_DIR			"ath10k"
 
 #define QCA988X_2_0_DEVICE_ID   (0x003c)
@@ -104,6 +111,7 @@ enum qca9377_chip_id_rev {
 #define QCA9377_HW_1_0_FW_FILE         "firmware.bin"
 #define QCA9377_HW_1_0_OTP_FILE        "otp.bin"
 #define QCA9377_HW_1_0_BOARD_DATA_FILE "board.bin"
+#define QCA9377_HW_1_0_BOARD_DATA_FILE_USB "board-usb.bin"
 #define QCA9377_HW_1_0_PATCH_LOAD_ADDR	0x1234
 
 #define ATH10K_FW_FILE_NAME_MAX_LEN	100
@@ -311,6 +319,56 @@ enum ath10k_hw_rate_cck {
 	ATH10K_HW_RATE_CCK_SP_2M,
 };
 
+struct ath10k_hw_params {
+	u32 id;
+	u16 dev_id;
+	const char *name;
+	u32 patch_load_addr;
+	int uart_pin;
+	u32 otp_exe_param;
+
+	/* This is true if given HW chip has a quirky Cycle Counter
+	 * wraparound which resets to 0x7fffffff instead of 0. All
+	 * other CC related counters (e.g. Rx Clear Count) are divided
+	 * by 2 so they never wraparound themselves.
+	 */
+	bool has_shifted_cc_wraparound;
+
+	/* Some of chip expects fragment descriptor to be continuous
+	 * memory for any TX operation. Set continuous_frag_desc flag
+	 * for the hardware which have such requirement.
+	 */
+	bool continuous_frag_desc;
+
+	u32 channel_counters_freq_hz;
+
+	/* Mgmt tx descriptors threshold for limiting probe response
+	 * frames.
+	 */
+	u32 max_probe_resp_desc_thres;
+
+	struct ath10k_hw_params_fw {
+		const char *dir;
+		const char *fw;
+		const char *otp;
+		const char *board;
+		size_t board_size;
+		size_t board_ext_size;
+	} fw;
+
+	/* max_num_peers can be used to override the setting derived from
+	 * the WMI op version. If this value is non-zero, it will always
+	 * be used instead of the default value derived from the WMI op
+	 * version.
+	 */
+	int max_num_peers;
+
+	/* Specifies whether or not the device is a high latency device */
+	bool is_high_latency;
+
+	enum ath10k_bus bus;
+};
+
 /* Target specific defines for MAIN firmware */
 #define TARGET_NUM_VDEVS			8
 #define TARGET_NUM_PEER_AST			2
@@ -389,6 +447,9 @@ enum ath10k_hw_rate_cck {
 #define TARGET_TLV_NUM_TIDS			((TARGET_TLV_NUM_PEERS) * 2)
 #define TARGET_TLV_NUM_MSDU_DESC		(1024 + 32)
 #define TARGET_TLV_NUM_WOW_PATTERNS		22
+
+/* Target specific defines for QCA9377 high latency firmware */
+#define TARGET_QCA9377_HL_NUM_PEERS		15
 
 /* Diagnostic Window */
 #define CE_DIAG_PIPE	7

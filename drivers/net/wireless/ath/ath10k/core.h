@@ -67,13 +67,6 @@
 
 struct ath10k;
 
-enum ath10k_bus {
-	ATH10K_BUS_PCI,
-	ATH10K_BUS_AHB,
-	ATH10K_BUS_SDIO,
-	ATH10K_BUS_USB,
-};
-
 static inline const char *ath10k_bus_str(enum ath10k_bus bus)
 {
 	switch (bus) {
@@ -671,43 +664,7 @@ struct ath10k {
 	struct ath10k_htc htc;
 	struct ath10k_htt htt;
 
-	struct ath10k_hw_params {
-		u32 id;
-		u16 dev_id;
-		const char *name;
-		u32 patch_load_addr;
-		int uart_pin;
-		u32 otp_exe_param;
-
-		/* This is true if given HW chip has a quirky Cycle Counter
-		 * wraparound which resets to 0x7fffffff instead of 0. All
-		 * other CC related counters (e.g. Rx Clear Count) are divided
-		 * by 2 so they never wraparound themselves.
-		 */
-		bool has_shifted_cc_wraparound;
-
-		/* Some of chip expects fragment descriptor to be continuous
-		 * memory for any TX operation. Set continuous_frag_desc flag
-		 * for the hardware which have such requirement.
-		 */
-		bool continuous_frag_desc;
-
-		u32 channel_counters_freq_hz;
-
-		/* Mgmt tx descriptors threshold for limiting probe response
-		 * frames.
-		 */
-		u32 max_probe_resp_desc_thres;
-
-		struct ath10k_hw_params_fw {
-			const char *dir;
-			const char *fw;
-			const char *otp;
-			const char *board;
-			size_t board_size;
-			size_t board_ext_size;
-		} fw;
-	} hw_params;
+	struct ath10k_hw_params hw_params;
 
 	const struct firmware *board;
 	const void *board_data;
