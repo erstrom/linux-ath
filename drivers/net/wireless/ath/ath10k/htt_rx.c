@@ -1558,8 +1558,8 @@ static void ath10k_htt_rx_h_filter(struct ath10k *ar,
 	__skb_queue_purge(amsdu);
 }
 
-static void ath10k_htt_rx_handler(struct ath10k_htt *htt,
-				  struct htt_rx_indication *rx)
+static void ath10k_htt_rx_handler_ll(struct ath10k_htt *htt,
+				     struct htt_rx_indication *rx)
 {
 	struct ath10k *ar = htt->ar;
 	struct ieee80211_rx_status *rx_status = &htt->rx_status;
@@ -1612,6 +1612,90 @@ static void ath10k_htt_rx_handler(struct ath10k_htt *htt,
 	}
 
 	tasklet_schedule(&htt->rx_replenish_task);
+}
+
+static bool ath10k_htt_rx_handler_hl(struct ath10k_htt *htt,
+				     struct htt_rx_indication_hl *rx,
+				     struct sk_buff *skb)
+{
+	struct ath10k *ar = htt->ar;
+	struct ath10k_peer *peer;
+	struct htt_rx_indication_mpdu_range *mpdu_ranges;
+	struct fw_rx_desc_hl *fw_desc;
+	struct ieee80211_hdr *hdr;
+	struct ieee80211_rx_status *rx_status;
+	u16 peer_id;
+	u8 rx_desc_len;
+	int num_mpdu_ranges;
+	size_t tot_hdr_len;
+
+	peer_id = __le16_to_cpu(rx->hdr.peer_id);
+
+	peer = ath10k_peer_find_by_id(ar, peer_id);
+	if (!peer)
+		ath10k_warn(ar, "Got RX ind from invalid peer: %u\n", peer_id);
+
+	num_mpdu_ranges = MS(__le32_to_cpu(rx->hdr.info1),
+			     HTT_RX_INDICATION_INFO1_NUM_MPDU_RANGES);
+	mpdu_ranges = htt_rx_ind_get_mpdu_ranges_hl(rx);
+	fw_desc = &rx->fw_desc;
+	rx_desc_len = fw_desc->len;
+
+	/* I have not yet seen any case where num_mpdu_ranges > 1.
+	 * qcacld does not seem handle that case either, so we introduce the
+	 * same limitiation here as well.
+	 */
+	if (num_mpdu_ranges > 1)
+		ath10k_warn(ar,
+			    "Unsupported number of MPDU ranges: %d, ignoring all but the first\n",
+			    num_mpdu_ranges);
+
+	if (mpdu_ranges->mpdu_range_status !=
+	    HTT_RX_IND_MPDU_STATUS_OK) {
+		ath10k_warn(ar, "MPDU range status: %d\n",
+			    mpdu_ranges->mpdu_range_status);
+		goto err;
+	}
+
+	/* Strip off all headers before the MAC header before delivery to
+	 * mac80211
+	 */
+	tot_hdr_len = sizeof(struct htt_resp_hdr) + sizeof(rx->hdr) +
+		      sizeof(rx->ppdu) + sizeof(rx->prefix) +
+		      sizeof(rx->fw_desc) + sizeof(*mpdu_ranges) + rx_desc_len;
+	skb_pull(skb, tot_hdr_len);
+
+	hdr = (struct ieee80211_hdr *)skb->data;
+	rx_status = IEEE80211_SKB_RXCB(skb);
+	rx_status->signal = ATH10K_DEFAULT_NOISE_FLOOR +
+			    rx->ppdu.combined_rssi;
+	rx_status->flag &= ~RX_FLAG_NO_SIGNAL_VAL;
+
+	/* Not entirely sure about this, but all frames from the chipset has
+	 * the protected flag set even though they have already been decrypted.
+	 * Unmasking this flag is necessary in order for mac80211 not to drop
+	 * the frame.
+	 * TODO: Verify this is always the case or find out a way to check
+	 * if there has been hw decryption.
+	 */
+	if (ieee80211_has_protected(hdr->frame_control)) {
+		hdr->frame_control &= ~__cpu_to_le16(IEEE80211_FCTL_PROTECTED);
+		rx_status->flag |= RX_FLAG_DECRYPTED |
+				   RX_FLAG_IV_STRIPPED |
+				   RX_FLAG_MMIC_STRIPPED;
+	}
+
+	ieee80211_rx(ar->hw, skb);
+
+	/* We have delivered the skb to the upper layers (mac80211) so we
+	 * must not free it.
+	 */
+	return false;
+err:
+	/* Tell the caller that it must free the skb since we have not
+	 * consumed it
+	 */
+	return true;
 }
 
 static void ath10k_htt_rx_frag_handler(struct ath10k_htt *htt,
@@ -2141,9 +2225,18 @@ static void ath10k_htt_txrx_compl_task(unsigned long ptr)
 
 	spin_lock_bh(&htt->rx_ring.lock);
 	while ((skb = __skb_dequeue(&htt->rx_compl_q))) {
+		bool free_skb = true;
+
 		resp = (struct htt_resp *)skb->data;
-		ath10k_htt_rx_handler(htt, &resp->rx_ind);
-		dev_kfree_skb_any(skb);
+		if (ar->is_high_latency)
+			free_skb = ath10k_htt_rx_handler_hl(htt,
+							    &resp->rx_ind_hl,
+							    skb);
+		else
+			ath10k_htt_rx_handler_ll(htt, &resp->rx_ind);
+
+		if (free_skb)
+			dev_kfree_skb_any(skb);
 	}
 
 	while ((skb = __skb_dequeue(&htt->rx_in_ord_compl_q))) {
