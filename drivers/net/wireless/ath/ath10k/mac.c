@@ -3324,15 +3324,21 @@ static void ath10k_mac_tx(struct ath10k *ar, struct sk_buff *skb)
 	case ATH10K_HW_TXRX_RAW:
 	case ATH10K_HW_TXRX_NATIVE_WIFI:
 	case ATH10K_HW_TXRX_ETHERNET:
-		ret = ath10k_htt_tx(htt, skb);
+		if (ar->is_high_latency)
+			ret = ath10k_htt_tx_hl(htt, skb);
+		else
+			ret = ath10k_htt_tx_ll(htt, skb);
 		break;
 	case ATH10K_HW_TXRX_MGMT:
 		if (test_bit(ATH10K_FW_FEATURE_HAS_WMI_MGMT_TX,
 			     ar->fw_features))
 			ret = ath10k_mac_tx_wmi_mgmt(ar, skb);
-		else if (ar->htt.target_version_major >= 3)
-			ret = ath10k_htt_tx(htt, skb);
-		else
+		else if (ar->htt.target_version_major >= 3) {
+			if (ar->is_high_latency)
+				ret = ath10k_htt_tx_hl(htt, skb);
+			else
+				ret = ath10k_htt_tx_ll(htt, skb);
+		} else
 			ret = ath10k_htt_mgmt_tx(htt, skb);
 		break;
 	}
