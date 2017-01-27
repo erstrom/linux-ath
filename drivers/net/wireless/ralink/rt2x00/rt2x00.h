@@ -627,7 +627,7 @@ struct rt2x00lib_ops {
 			struct ieee80211_vif *vif,
 			struct ieee80211_sta *sta);
 	int (*sta_remove) (struct rt2x00_dev *rt2x00dev,
-			   int wcid);
+			   struct ieee80211_sta *sta);
 };
 
 /*
@@ -716,6 +716,8 @@ enum rt2x00_capability_flags {
 	CAPABILITY_DOUBLE_ANTENNA,
 	CAPABILITY_BT_COEXIST,
 	CAPABILITY_VCO_RECALIBRATION,
+	CAPABILITY_INTERNAL_PA_TX0,
+	CAPABILITY_INTERNAL_PA_TX1,
 };
 
 /*
@@ -833,6 +835,10 @@ struct rt2x00_dev {
 	 */
 	struct mutex csr_mutex;
 
+	/*
+	 * Mutex to synchronize config and link tuner.
+	 */
+	struct mutex conf_mutex;
 	/*
 	 * Current packet filter configuration for the device.
 	 * This contains all currently active FIF_* flags send
