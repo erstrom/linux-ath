@@ -112,6 +112,7 @@ enum qca9377_chip_id_rev {
 #define QCA9377_HW_1_0_OTP_FILE        "otp.bin"
 #define QCA9377_HW_1_0_BOARD_DATA_FILE "board.bin"
 #define QCA9377_HW_1_0_BOARD_DATA_FILE_USB "board-usb.bin"
+#define QCA9377_HW_1_0_BOARD_DATA_FILE_SDIO "board-sdio.bin"
 #define QCA9377_HW_1_0_PATCH_LOAD_ADDR	0x1234
 
 #define ATH10K_FW_FILE_NAME_MAX_LEN	100
