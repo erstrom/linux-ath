@@ -933,7 +933,7 @@ static void ath10k_sdio_set_mbox_info(struct ath10k *ar)
 {
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct ath10k_mbox_info *mbox_info = &ar_sdio->mbox_info;
-	u16 device = ar_sdio->func->device;
+	u16 device = ar_sdio->func->device, dev_id_base, dev_id_chiprev;
 
 	mbox_info->htc_addr = ATH10K_HIF_MBOX_BASE_ADDR;
 	mbox_info->block_size = ATH10K_HIF_MBOX_BLOCK_SIZE;
@@ -943,14 +943,28 @@ static void ath10k_sdio_set_mbox_info(struct ath10k *ar)
 
 	mbox_info->ext_info[0].htc_ext_addr = ATH10K_HIF_MBOX0_EXT_BASE_ADDR;
 
-	if ((device & QCA_MANUFACTURER_ID_REV_MASK) < 4)
-		mbox_info->ext_info[0].htc_ext_sz = ATH10K_HIF_MBOX0_EXT_WIDTH;
-	else
-		/* from rome 2.0(0x504), the width has been extended
-		 * to 56K
-		 */
+	dev_id_base = FIELD_GET(QCA_MANUFACTURER_ID_BASE, device);
+	dev_id_chiprev = FIELD_GET(QCA_MANUFACTURER_ID_REV_MASK, device);
+	switch (dev_id_base) {
+	case QCA_MANUFACTURER_ID_AR6005_BASE:
+		if (dev_id_chiprev < 4)
+			mbox_info->ext_info[0].htc_ext_sz =
+				ATH10K_HIF_MBOX0_EXT_WIDTH;
+		else
+			/* from rome 2.0(0x504), the width has been extended
+			 * to 56K
+			 */
+			mbox_info->ext_info[0].htc_ext_sz =
+				ATH10K_HIF_MBOX0_EXT_WIDTH_ROME_2_0;
+		break;
+	case QCA_MANUFACTURER_ID_QCA9377_BASE:
 		mbox_info->ext_info[0].htc_ext_sz =
 			ATH10K_HIF_MBOX0_EXT_WIDTH_ROME_2_0;
+		break;
+	default:
+		mbox_info->ext_info[0].htc_ext_sz =
+				ATH10K_HIF_MBOX0_EXT_WIDTH;
+	}
 
 	mbox_info->ext_info[1].htc_ext_addr =
 		mbox_info->ext_info[0].htc_ext_addr +
@@ -1939,7 +1953,7 @@ static int ath10k_sdio_probe(struct sdio_func *func,
 	struct ath10k_sdio *ar_sdio;
 	struct ath10k *ar;
 	enum ath10k_hw_rev hw_rev;
-	u32 chip_id;
+	u32 chip_id, dev_id_base;
 
 	/* Assumption: All SDIO based chipsets (so far) are QCA6174 based.
 	 * If there will be newer chipsets that does not use the hw reg
@@ -2011,7 +2025,19 @@ static int ath10k_sdio_probe(struct sdio_func *func,
 	for (i = 0; i < ATH10K_SDIO_BUS_REQUEST_MAX_NUM; i++)
 		ath10k_sdio_free_bus_req(ar, &ar_sdio->bus_req[i]);
 
-	ar->dev_id = id->device;
+	dev_id_base = FIELD_GET(QCA_MANUFACTURER_ID_BASE, id->device);
+	switch (dev_id_base) {
+	case QCA_MANUFACTURER_ID_AR6005_BASE:
+	case QCA_MANUFACTURER_ID_QCA9377_BASE:
+		ar->dev_id = QCA9377_1_0_DEVICE_ID;
+		break;
+	default:
+		ret = -ENODEV;
+		ath10k_warn(ar,
+			    "unsupported dev id: %u, full: 0x%x\n",
+			    dev_id_base, id->device);
+		goto err_free_bmi_buf;
+	}
 	ar->id.vendor = id->vendor;
 	ar->id.device = id->device;
 
@@ -2067,7 +2093,9 @@ static void ath10k_sdio_remove(struct sdio_func *func)
 
 static const struct sdio_device_id ath10k_sdio_devices[] = {
 	{SDIO_DEVICE(QCA_MANUFACTURER_CODE,
-		     (QCA_MANUFACTURER_ID_AR6005_BASE | 0xA))},
+		     (QCA_SDIO_ID_AR6005_BASE | 0xA))},
+	{SDIO_DEVICE(QCA_MANUFACTURER_CODE,
+		     (QCA_SDIO_ID_QCA9377_BASE | 0x1))},
 	{},
 };
 
