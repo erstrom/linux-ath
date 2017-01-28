@@ -2068,6 +2068,8 @@ static void ath10k_sdio_remove(struct sdio_func *func)
 static const struct sdio_device_id ath10k_sdio_devices[] = {
 	{SDIO_DEVICE(QCA_MANUFACTURER_CODE,
 		     (QCA_MANUFACTURER_ID_AR6005_BASE | 0xA))},
+	{SDIO_DEVICE(QCA_MANUFACTURER_CODE,
+		     (QCA_MANUFACTURER_ID_QCA9377_BASE | 0x1))},
 	{},
 };
 
