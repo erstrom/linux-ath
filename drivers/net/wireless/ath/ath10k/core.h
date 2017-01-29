@@ -597,6 +597,32 @@ enum ath10k_tx_pause_reason {
 	ATH10K_TX_PAUSE_MAX,
 };
 
+enum ath10k_refclk_speed {
+	SOC_REFCLK_UNKNOWN   = -1, /* Unsupported ref clock -- use PLL Bypass */
+	SOC_REFCLK_48_MHZ    = 0,
+	SOC_REFCLK_19_2_MHZ  = 1,
+	SOC_REFCLK_24_MHZ    = 2,
+	SOC_REFCLK_26_MHZ    = 3,
+	SOC_REFCLK_37_4_MHZ  = 4,
+	SOC_REFCLK_38_4_MHZ  = 5,
+	SOC_REFCLK_40_MHZ    = 6,
+	SOC_REFCLK_52_MHZ    = 7,
+};
+
+struct ath10k_wlan_pll {
+	u32 refdiv;
+	u32 div;
+	u32 rnfrac;
+	u32 outdiv;
+};
+
+struct ath10k_cmnos_clock {
+	enum ath10k_refclk_speed refclk_speed;
+	u32 refclk_hz;
+	u32 pll_settling_time; /* 50us */
+	struct ath10k_wlan_pll wlan_pll;
+};
+
 struct ath10k {
 	struct ath_common ath_common;
 	struct ieee80211_hw *hw;
