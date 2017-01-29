@@ -933,7 +933,7 @@ static void ath10k_sdio_set_mbox_info(struct ath10k *ar)
 {
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct ath10k_mbox_info *mbox_info = &ar_sdio->mbox_info;
-	u16 device = ar_sdio->func->device;
+	u16 device = ar_sdio->func->device, dev_id_base, dev_id_chiprev;
 
 	mbox_info->htc_addr = ATH10K_HIF_MBOX_BASE_ADDR;
 	mbox_info->block_size = ATH10K_HIF_MBOX_BLOCK_SIZE;
@@ -943,14 +943,28 @@ static void ath10k_sdio_set_mbox_info(struct ath10k *ar)
 
 	mbox_info->ext_info[0].htc_ext_addr = ATH10K_HIF_MBOX0_EXT_BASE_ADDR;
 
-	if ((device & QCA_MANUFACTURER_ID_REV_MASK) < 4)
-		mbox_info->ext_info[0].htc_ext_sz = ATH10K_HIF_MBOX0_EXT_WIDTH;
-	else
-		/* from rome 2.0(0x504), the width has been extended
-		 * to 56K
-		 */
+	dev_id_base = FIELD_GET(QCA_MANUFACTURER_ID_BASE, device);
+	dev_id_chiprev = FIELD_GET(QCA_MANUFACTURER_ID_REV_MASK, device);
+	switch (dev_id_base) {
+	case QCA_MANUFACTURER_ID_AR6005_BASE:
+		if (dev_id_chiprev < 4)
+			mbox_info->ext_info[0].htc_ext_sz =
+				ATH10K_HIF_MBOX0_EXT_WIDTH;
+		else
+			/* from rome 2.0(0x504), the width has been extended
+			 * to 56K
+			 */
+			mbox_info->ext_info[0].htc_ext_sz =
+				ATH10K_HIF_MBOX0_EXT_WIDTH_ROME_2_0;
+		break;
+	case QCA_MANUFACTURER_ID_QCA9377_BASE:
 		mbox_info->ext_info[0].htc_ext_sz =
 			ATH10K_HIF_MBOX0_EXT_WIDTH_ROME_2_0;
+		break;
+	default:
+		mbox_info->ext_info[0].htc_ext_sz =
+				ATH10K_HIF_MBOX0_EXT_WIDTH;
+	}
 
 	mbox_info->ext_info[1].htc_ext_addr =
 		mbox_info->ext_info[0].htc_ext_addr +
