@@ -203,6 +203,10 @@ int ath10k_bmi_read_memory(struct ath10k *ar, u32 address,
 			   void *buffer, u32 length);
 int ath10k_bmi_write_memory(struct ath10k *ar, u32 address,
 			    const void *buffer, u32 length);
+int ath10k_bmi_read_soc_reg(struct ath10k *ar,
+			    u32 address, u32 *regval);
+int ath10k_bmi_write_soc_reg(struct ath10k *ar,
+			     u32 address, u32 regval);
 
 #define ath10k_bmi_read32(ar, item, val)				\
 	({								\
