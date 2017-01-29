@@ -2219,7 +2219,8 @@ static void ath10k_htt_txrx_compl_task(unsigned long ptr)
 	struct sk_buff *skb;
 
 	while ((skb = skb_dequeue(&htt->tx_compl_q))) {
-		ath10k_htt_rx_frm_tx_compl(htt->ar, skb);
+		if (!ar->is_high_latency)
+			ath10k_htt_rx_frm_tx_compl(htt->ar, skb);
 		dev_kfree_skb_any(skb);
 	}
 
