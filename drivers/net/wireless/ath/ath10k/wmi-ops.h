@@ -199,6 +199,8 @@ struct wmi_ops {
 	struct sk_buff *(*gen_echo)(struct ath10k *ar, u32 value);
 	struct sk_buff *(*gen_set_smps_params)(struct ath10k *ar, u32 vdev_id,
 					       u32 value);
+	struct sk_buff *(*gen_set_thermal_mgmt)(struct ath10k *ar, u32 min_temp,
+						u32 max_temp, bool enable);
 };
 
 int ath10k_wmi_cmd_send(struct ath10k *ar, struct sk_buff *skb, u32 cmd_id);
@@ -1433,6 +1435,24 @@ ath10k_wmi_set_smps_params(struct ath10k *ar, u32 vdev_id, u32 value)
 		return PTR_ERR(skb);
 
 	return ath10k_wmi_cmd_send(ar, skb, wmi->cmd->set_smps_params_cmdid);
+}
+
+static inline int
+ath10k_wmi_set_thermal_mgmt(struct ath10k *ar, u32 min_temp, u32 max_temp,
+			    bool enable)
+{
+	struct ath10k_wmi *wmi = &ar->wmi;
+	struct sk_buff *skb;
+
+	if (!wmi->ops->gen_set_thermal_mgmt)
+		return -EOPNOTSUPP;
+
+	skb = wmi->ops->gen_set_thermal_mgmt(ar, min_temp, max_temp,
+					     enable);
+	if (IS_ERR(skb))
+		return PTR_ERR(skb);
+
+	return ath10k_wmi_cmd_send(ar, skb, wmi->cmd->thermal_mgmt_cmdid);
 }
 
 #endif
