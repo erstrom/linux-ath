@@ -837,6 +837,7 @@ struct wmi_cmd_map {
 	u32 pdev_bss_chan_info_request_cmdid;
 	u32 pdev_enable_adaptive_cca_cmdid;
 	u32 ext_resource_cfg_cmdid;
+	u32 set_smps_params_cmdid;
 };
 
 /*
@@ -6584,6 +6585,12 @@ enum wmi_bss_survey_req_type {
 struct wmi_pdev_chan_info_req_cmd {
 	__le32 type;
 	__le32 reserved;
+} __packed;
+
+struct wmi_sta_smps_param_cmd {
+	__le32 vdev_id;
+	__le32 param;
+	__le32 value;
 } __packed;
 
 struct ath10k;
