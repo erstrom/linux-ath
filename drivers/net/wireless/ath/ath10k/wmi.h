@@ -838,6 +838,7 @@ struct wmi_cmd_map {
 	u32 pdev_enable_adaptive_cca_cmdid;
 	u32 ext_resource_cfg_cmdid;
 	u32 set_smps_params_cmdid;
+	u32 thermal_mgmt_cmdid;
 };
 
 /*
@@ -6591,6 +6592,12 @@ struct wmi_sta_smps_param_cmd {
 	__le32 vdev_id;
 	__le32 param;
 	__le32 value;
+} __packed;
+
+struct wmi_thermal_mgmt_cmd {
+	__le32 low_thresh_deg_c;
+	__le32 up_thresh_deg_c;
+	__le32 enable;
 } __packed;
 
 struct ath10k;
