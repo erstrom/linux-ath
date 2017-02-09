@@ -3212,6 +3212,34 @@ ath10k_wmi_tlv_op_gen_vdev_spectral_enable(struct ath10k *ar, u32 vdev_id,
 	return skb;
 }
 
+static struct sk_buff *
+ath10k_wmi_tlv_op_gen_set_smps_params(struct ath10k *ar, u32 vdev_id,
+				      u32 value)
+{
+	struct wmi_sta_smps_param_cmd *cmd;
+	struct sk_buff *skb;
+	struct wmi_tlv *tlv;
+	void *ptr;
+	size_t len;
+
+	len = sizeof(*tlv) + sizeof(*cmd);
+	skb = ath10k_wmi_alloc_skb(ar, len);
+	if (!skb)
+		return ERR_PTR(-ENOMEM);
+
+	ptr = (void *)skb->data;
+	tlv = ptr;
+	tlv->tag = __cpu_to_le16(WMI_TLV_TAG_STRUCT_STA_SMPS_PARAM_CMD);
+	tlv->len = __cpu_to_le16(sizeof(*cmd));
+	cmd = (void *)tlv->value;
+
+	cmd->vdev_id = __cpu_to_le32(vdev_id);
+	cmd->param = __cpu_to_le32((value >> 29) & 7);
+	cmd->value = __cpu_to_le32(value & 0xff);
+
+	return skb;
+}
+
 /****************/
 /* TLV mappings */
 /****************/
@@ -3339,6 +3367,7 @@ static struct wmi_cmd_map wmi_tlv_cmd_map = {
 	.tdls_set_state_cmdid = WMI_TLV_TDLS_SET_STATE_CMDID,
 	.tdls_peer_update_cmdid = WMI_TLV_TDLS_PEER_UPDATE_CMDID,
 	.adaptive_qcs_cmdid = WMI_TLV_RESMGR_ADAPTIVE_OCS_CMDID,
+	.set_smps_params_cmdid = WMI_TLV_STA_SMPS_PARAM_CMDID,
 };
 
 static struct wmi_pdev_param_map wmi_tlv_pdev_param_map = {
@@ -3587,6 +3616,7 @@ static const struct wmi_ops wmi_tlv_ops = {
 	.gen_echo = ath10k_wmi_tlv_op_gen_echo,
 	.gen_vdev_spectral_conf = ath10k_wmi_tlv_op_gen_vdev_spectral_conf,
 	.gen_vdev_spectral_enable = ath10k_wmi_tlv_op_gen_vdev_spectral_enable,
+	.gen_set_smps_params = ath10k_wmi_tlv_op_gen_set_smps_params,
 };
 
 static const struct wmi_peer_flags_map wmi_tlv_peer_flags_map = {
