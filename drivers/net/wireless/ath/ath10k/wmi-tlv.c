@@ -3268,6 +3268,46 @@ ath10k_wmi_tlv_op_gen_set_thermal_mgmt(struct ath10k *ar, u32 min_temp,
 	return skb;
 }
 
+static struct sk_buff *
+ath10k_wmi_tlv_op_gen_set_peer_rate_report_condition(struct ath10k *ar,
+						     struct wmi_bad_peer_txtcl_config *cfg)
+{
+	struct wmi_peer_set_rate_report_cond *cmd;
+	struct sk_buff *skb;
+	struct wmi_tlv *tlv;
+	void *ptr;
+	size_t len;
+	int i, j;
+
+	len = sizeof(*tlv) + sizeof(*cmd);
+	skb = ath10k_wmi_alloc_skb(ar, len);
+	if (!skb)
+		return ERR_PTR(-ENOMEM);
+
+	ptr = (void *)skb->data;
+	tlv = ptr;
+	tlv->tag = __cpu_to_le16(WMI_TLV_TAG_STRUCT_PEER_SET_RATE_REPORT_COND);
+	tlv->len = __cpu_to_le16(sizeof(*cmd));
+	cmd = (void *)tlv->value;
+
+	cmd->enable_rate_report  = cfg->enable;
+	cmd->report_backoff_time = cfg->tgt_backoff;
+	cmd->report_timer_period = cfg->tgt_report_prd;
+	for (i = 0; i < PEER_RATE_REPORT_COND_MAX_NUM; i++) {
+		cmd->cond_per_phy[i].val_cond_flags =
+			cfg->threshold[i].cond;
+		cmd->cond_per_phy[i].rate_delta.min_delta  =
+			cfg->threshold[i].delta;
+		cmd->cond_per_phy[i].rate_delta.percentage =
+			cfg->threshold[i].percentage;
+		for (j = 0; j < MAX_NUM_OF_RATE_THRESH; j++)
+			cmd->cond_per_phy[i].rate_threshold[j] =
+				cfg->threshold[i].thresh[j];
+	}
+
+	return skb;
+}
+
 /****************/
 /* TLV mappings */
 /****************/
@@ -3397,6 +3437,8 @@ static struct wmi_cmd_map wmi_tlv_cmd_map = {
 	.adaptive_qcs_cmdid = WMI_TLV_RESMGR_ADAPTIVE_OCS_CMDID,
 	.set_smps_params_cmdid = WMI_TLV_STA_SMPS_PARAM_CMDID,
 	.thermal_mgmt_cmdid = WMI_TLV_THERMAL_MGMT_CMDID,
+	.peer_set_rate_report_cond =
+		WMI_TLV_PEER_SET_RATE_REPORT_CONDITION_CMDID,
 };
 
 static struct wmi_pdev_param_map wmi_tlv_pdev_param_map = {
@@ -3647,6 +3689,8 @@ static const struct wmi_ops wmi_tlv_ops = {
 	.gen_vdev_spectral_enable = ath10k_wmi_tlv_op_gen_vdev_spectral_enable,
 	.gen_set_smps_params = ath10k_wmi_tlv_op_gen_set_smps_params,
 	.gen_set_thermal_mgmt = ath10k_wmi_tlv_op_gen_set_thermal_mgmt,
+	.gen_set_peer_rate_report_condition =
+		ath10k_wmi_tlv_op_gen_set_peer_rate_report_condition,
 };
 
 static const struct wmi_peer_flags_map wmi_tlv_peer_flags_map = {
