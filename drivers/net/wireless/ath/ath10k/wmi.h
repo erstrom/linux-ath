@@ -839,6 +839,7 @@ struct wmi_cmd_map {
 	u32 ext_resource_cfg_cmdid;
 	u32 set_smps_params_cmdid;
 	u32 thermal_mgmt_cmdid;
+	u32 peer_set_rate_report_cond;
 };
 
 /*
@@ -6599,6 +6600,77 @@ struct wmi_thermal_mgmt_cmd {
 	__le32 up_thresh_deg_c;
 	__le32 enable;
 } __packed;
+
+#define MAX_NUM_OF_RATE_THRESH 4
+
+struct wmi_peer_rate_delta {
+	/* in unit of 12.5% */
+	__le32 percentage;
+	/* in unit of Mbps */
+	__le32 min_delta;
+} __packed;
+
+struct wmi_report_cond_per_phy {
+#define PEER_RATE_REPORT_COND_FLAG_DELTA     0x01
+#define PEER_RATE_REPORT_COND_FLAG_THRESHOLD 0x02
+	__le32 val_cond_flags;
+	struct wmi_peer_rate_delta rate_delta;
+	/* In unit of Mbps. There are at most 4 thresholds.
+	 * If the threshold count is less than 4, set zero to
+	 * the one following the last threshold.
+	 */
+	__le32 rate_threshold[MAX_NUM_OF_RATE_THRESH];
+} __packed;
+
+enum wmi_peer_rate_report_cond_phy_type {
+	PEER_RATE_REPORT_COND_11B = 0,
+	PEER_RATE_REPORT_COND_11A_G,
+	PEER_RATE_REPORT_COND_11N,
+	PEER_RATE_REPORT_COND_11AC,
+	PEER_RATE_REPORT_COND_MAX_NUM
+};
+
+struct wmi_peer_set_rate_report_cond {
+	/* 1= enable, 0=disable */
+	__le32 enable_rate_report;
+	/* in unit of msecond */
+	__le32 report_backoff_time;
+	/* in unit of msecond */
+	__le32 report_timer_period;
+	/* In the following field, the array index means the phy type,
+	 * please see enum wmi_peer_rate_report_cond_phy_type for detail.
+	 */
+	struct wmi_report_cond_per_phy cond_per_phy[PEER_RATE_REPORT_COND_MAX_NUM];
+} __packed;
+
+/* function argument */
+
+enum wmi_bad_peer_thresh_levels {
+	WLAN_WMA_IEEE80211_B_LEVEL = 0,
+	WLAN_WMA_IEEE80211_AG_LEVEL,
+	WLAN_WMA_IEEE80211_N_LEVEL,
+	WLAN_WMA_IEEE80211_AC_LEVEL,
+	WLAN_WMA_IEEE80211_AX_LEVEL,
+	WLAN_WMA_IEEE80211_MAX_LEVEL,
+};
+
+struct wmi_bad_peer_info {
+	u32 cond;
+	u32 delta;
+	u32 percentage;
+	u32 thresh[MAX_NUM_OF_RATE_THRESH];
+	u32 txlimit;
+};
+
+struct wmi_bad_peer_txtcl_config {
+	/* Array of thermal levels */
+	struct wmi_bad_peer_info threshold[WLAN_WMA_IEEE80211_MAX_LEVEL];
+	u32 enable;
+	u32 period;
+	u32 txq_limit;
+	u32 tgt_backoff;
+	u32 tgt_report_prd;
+};
 
 struct ath10k;
 struct ath10k_vif;

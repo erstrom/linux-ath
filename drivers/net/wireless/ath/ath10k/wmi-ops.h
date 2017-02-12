@@ -201,6 +201,9 @@ struct wmi_ops {
 					       u32 value);
 	struct sk_buff *(*gen_set_thermal_mgmt)(struct ath10k *ar, u32 min_temp,
 						u32 max_temp, bool enable);
+	struct sk_buff *
+		(*gen_set_peer_rate_report_condition)(struct ath10k *ar,
+						      struct wmi_bad_peer_txtcl_config *cfg);
 };
 
 int ath10k_wmi_cmd_send(struct ath10k *ar, struct sk_buff *skb, u32 cmd_id);
@@ -1453,6 +1456,24 @@ ath10k_wmi_set_thermal_mgmt(struct ath10k *ar, u32 min_temp, u32 max_temp,
 		return PTR_ERR(skb);
 
 	return ath10k_wmi_cmd_send(ar, skb, wmi->cmd->thermal_mgmt_cmdid);
+}
+
+static inline int
+ath10k_wmi_set_peer_rate_report_condition(struct ath10k *ar,
+					  struct wmi_bad_peer_txtcl_config *cfg)
+{
+	struct ath10k_wmi *wmi = &ar->wmi;
+	struct sk_buff *skb;
+
+	if (!wmi->ops->gen_set_peer_rate_report_condition)
+		return -EOPNOTSUPP;
+
+	skb = wmi->ops->gen_set_peer_rate_report_condition(ar, cfg);
+	if (IS_ERR(skb))
+		return PTR_ERR(skb);
+
+	return ath10k_wmi_cmd_send(ar, skb,
+				   wmi->cmd->peer_set_rate_report_cond);
 }
 
 #endif
