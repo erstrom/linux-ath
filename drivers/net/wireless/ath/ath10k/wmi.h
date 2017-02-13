@@ -4708,6 +4708,7 @@ struct wmi_vdev_param_map {
 	u32 inc_tsf;
 	u32 dec_tsf;
 	u32 roam_fw_offload;
+	u32 tx_pwr_limit;
 };
 
 #define WMI_VDEV_PARAM_UNSUPPORTED 0
