@@ -4707,6 +4707,7 @@ struct wmi_vdev_param_map {
 	u32 bw_nss_ratemask;
 	u32 inc_tsf;
 	u32 dec_tsf;
+	u32 roam_fw_offload;
 };
 
 #define WMI_VDEV_PARAM_UNSUPPORTED 0
