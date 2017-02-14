@@ -5638,6 +5638,14 @@ T:	git git://linuxtv.org/media_tree.git
 S:	Odd Fixes
 F:	drivers/media/usb/gspca/
 
+GTP (GPRS Tunneling Protocol)
+M:	Pablo Neira Ayuso <pablo@netfilter.org>
+M:	Harald Welte <laforge@gnumonks.org>
+L:	osmocom-net-gprs@lists.osmocom.org
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/pablo/gtp.git
+S:	Maintained
+F:	drivers/net/gtp.c
+
 GUID PARTITION TABLE (GPT)
 M:	Davidlohr Bueso <dave@stgolabs.net>
 L:	linux-efi@vger.kernel.org
@@ -6249,6 +6257,13 @@ F:	include/net/af_ieee802154.h
 F:	include/net/cfg802154.h
 F:	include/net/ieee802154_netdev.h
 F:	Documentation/networking/ieee802154.txt
+
+IFE PROTOCOL
+M:	Yotam Gigi <yotamg@mellanox.com>
+M:	Jamal Hadi Salim <jhs@mojatatu.com>
+F:	net/ife
+F:	include/net/ife.h
+F:	include/uapi/linux/ife.h
 
 IGORPLUG-USB IR RECEIVER
 M:	Sean Young <sean@mess.org>
@@ -8572,9 +8587,8 @@ F:	Documentation/networking/s2io.txt
 F:	Documentation/networking/vxge.txt
 F:	drivers/net/ethernet/neterion/
 
-NETFILTER ({IP,IP6,ARP,EB,NF}TABLES)
+NETFILTER
 M:	Pablo Neira Ayuso <pablo@netfilter.org>
-M:	Patrick McHardy <kaber@trash.net>
 M:	Jozsef Kadlecsik <kadlec@blackhole.kfki.hu>
 L:	netfilter-devel@vger.kernel.org
 L:	coreteam@netfilter.org
@@ -9374,6 +9388,14 @@ F:	drivers/tty/serial/8250/8250_gsc.c
 F:	drivers/video/fbdev/sti*
 F:	drivers/video/console/sti*
 F:	drivers/video/logo/logo_parisc*
+
+PARMAN
+M:	Jiri Pirko <jiri@mellanox.com>
+L:	netdev@vger.kernel.org
+S:	Supported
+F:	lib/parman.c
+F:	lib/test_parman.c
+F:	include/linux/parman.h
 
 PC87360 HARDWARE MONITORING DRIVER
 M:	Jim Cromie <jim.cromie@gmail.com>
@@ -11907,6 +11929,7 @@ F:	include/linux/swiotlb.h
 
 SWITCHDEV
 M:	Jiri Pirko <jiri@resnulli.us>
+M:	Ivan Vecera <ivecera@redhat.com>
 L:	netdev@vger.kernel.org
 S:	Supported
 F:	net/switchdev/

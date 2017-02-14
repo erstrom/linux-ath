@@ -463,7 +463,6 @@ static inline bool napi_reschedule(struct napi_struct *napi)
 	return false;
 }
 
-bool __napi_complete(struct napi_struct *n);
 bool napi_complete_done(struct napi_struct *n, int work_done);
 /**
  *	napi_complete - NAPI processing complete
@@ -1184,9 +1183,6 @@ struct net_device_ops {
 	int			(*ndo_netpoll_setup)(struct net_device *dev,
 						     struct netpoll_info *info);
 	void			(*ndo_netpoll_cleanup)(struct net_device *dev);
-#endif
-#ifdef CONFIG_NET_RX_BUSY_POLL
-	int			(*ndo_busy_poll)(struct napi_struct *dev);
 #endif
 	int			(*ndo_set_vf_mac)(struct net_device *dev,
 						  int queue, u8 *mac);
@@ -3896,10 +3892,6 @@ void *netdev_lower_dev_get_private(struct net_device *dev,
 				   struct net_device *lower_dev);
 void netdev_lower_state_changed(struct net_device *lower_dev,
 				void *lower_state_info);
-int netdev_default_l2upper_neigh_construct(struct net_device *dev,
-					   struct neighbour *n);
-void netdev_default_l2upper_neigh_destroy(struct net_device *dev,
-					  struct neighbour *n);
 
 /* RSS keys are 40 or 52 bytes long */
 #define NETDEV_RSS_KEY_LEN 52

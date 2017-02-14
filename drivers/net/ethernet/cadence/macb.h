@@ -10,6 +10,8 @@
 #ifndef _MACB_H
 #define _MACB_H
 
+#include <linux/phy.h>
+
 #define MACB_GREGS_NBR 16
 #define MACB_GREGS_VERSION 2
 #define MACB_MAX_QUEUES 8
@@ -952,10 +954,10 @@ struct macb {
 
 	u32			wol;
 
+	struct macb_ptp_info	*ptp_info;	/* macb-ptp interface */
 #ifdef CONFIG_ARCH_DMA_ADDR_T_64BIT
 	enum macb_hw_dma_cap hw_dma_cap;
 #endif
-	struct macb_ptp_info	*ptp_info;	/* macb-ptp interface */
 };
 
 static inline bool macb_is_gem(struct macb *bp)
