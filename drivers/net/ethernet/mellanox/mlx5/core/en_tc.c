@@ -713,8 +713,6 @@ static int mlx5e_route_lookup_ipv4(struct mlx5e_priv *priv,
 		return -ENOMEM;
 
 	*out_n = n;
-	*out_dev = rt->dst.dev;
-
 	return 0;
 }
 
@@ -733,8 +731,8 @@ static int mlx5e_route_lookup_ipv6(struct mlx5e_priv *priv,
 	int ret;
 
 	dst = ip6_route_output(dev_net(mirred_dev), NULL, fl6);
-	if (dst->error) {
-		ret = dst->error;
+	ret = dst->error;
+	if (ret) {
 		dst_release(dst);
 		return ret;
 	}
