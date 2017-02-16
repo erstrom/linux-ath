@@ -4791,6 +4791,7 @@ static void ath10k_bss_info_changed(struct ieee80211_hw *hw,
 	if (changed & BSS_CHANGED_BEACON_ENABLED)
 		ath10k_control_beaconing(arvif, info);
 
+#if 0
 	if (changed & BSS_CHANGED_ERP_CTS_PROT) {
 		arvif->use_cts_prot = info->use_cts_prot;
 		ath10k_dbg(ar, ATH10K_DBG_MAC, "mac vdev %d cts_prot %d\n",
@@ -4808,6 +4809,7 @@ static void ath10k_bss_info_changed(struct ieee80211_hw *hw,
 			ath10k_warn(ar, "failed to set protection mode %d on vdev %i: %d\n",
 				    info->use_cts_prot, arvif->vdev_id, ret);
 	}
+#endif
 
 	if (changed & BSS_CHANGED_ERP_SLOT) {
 		if (info->use_short_slot)
