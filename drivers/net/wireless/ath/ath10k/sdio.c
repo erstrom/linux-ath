@@ -1726,6 +1726,11 @@ static int ath10k_sdio_hif_start(struct ath10k *ar)
 	u32 addr, val;
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 
+	/* Sleep 20 ms before HIF interrupts are disabled.
+	 * This will give target plenty of time to process the BMI done
+	 * request before interrupts are disabled.
+	 */
+	msleep(20);
 	ret = ath10k_sdio_hif_disable_intrs(ar);
 	if (ret)
 		goto err;
