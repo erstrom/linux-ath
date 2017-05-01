@@ -125,7 +125,6 @@ struct rhashtable;
  * @key_len: Length of key
  * @key_offset: Offset of key in struct to be hashed
  * @head_offset: Offset of rhash_head in struct to be hashed
- * @insecure_max_entries: Maximum number of entries (may be exceeded)
  * @max_size: Maximum size while expanding
  * @min_size: Minimum size while shrinking
  * @nulls_base: Base value to generate nulls marker
@@ -140,7 +139,6 @@ struct rhashtable_params {
 	size_t			key_len;
 	size_t			key_offset;
 	size_t			head_offset;
-	unsigned int		insecure_max_entries;
 	unsigned int		max_size;
 	unsigned int		min_size;
 	u32			nulls_base;
@@ -157,6 +155,7 @@ struct rhashtable_params {
  * @nelems: Number of elements in table
  * @key_len: Key length for hashfn
  * @p: Configuration parameters
+ * @max_elems: Maximum number of elements in table
  * @rhlist: True if this is an rhltable
  * @run_work: Deferred worker to expand/shrink asynchronously
  * @mutex: Mutex to protect current/future table swapping
@@ -167,6 +166,7 @@ struct rhashtable {
 	atomic_t			nelems;
 	unsigned int			key_len;
 	struct rhashtable_params	p;
+	unsigned int			max_elems;
 	bool				rhlist;
 	struct work_struct		run_work;
 	struct mutex                    mutex;
@@ -329,8 +329,7 @@ static inline bool rht_grow_above_100(const struct rhashtable *ht,
 static inline bool rht_grow_above_max(const struct rhashtable *ht,
 				      const struct bucket_table *tbl)
 {
-	return ht->p.insecure_max_entries &&
-	       atomic_read(&ht->nelems) >= ht->p.insecure_max_entries;
+	return atomic_read(&ht->nelems) >= ht->max_elems;
 }
 
 /* The bucket lock is selected based on the hash and protects mutations
