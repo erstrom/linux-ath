@@ -538,11 +538,18 @@ enum {
 #define IFLA_PPP_MAX (__IFLA_PPP_MAX - 1)
 
 /* GTP section */
+
+enum ifla_gtp_role {
+	GTP_ROLE_GGSN = 0,
+	GTP_ROLE_SGSN,
+};
+
 enum {
 	IFLA_GTP_UNSPEC,
 	IFLA_GTP_FD0,
 	IFLA_GTP_FD1,
 	IFLA_GTP_PDP_HASHSIZE,
+	IFLA_GTP_ROLE,
 	__IFLA_GTP_MAX,
 };
 #define IFLA_GTP_MAX (__IFLA_GTP_MAX - 1)
@@ -880,7 +887,9 @@ enum {
 /* XDP section */
 
 #define XDP_FLAGS_UPDATE_IF_NOEXIST	(1U << 0)
-#define XDP_FLAGS_MASK			(XDP_FLAGS_UPDATE_IF_NOEXIST)
+#define XDP_FLAGS_SKB_MODE		(2U << 0)
+#define XDP_FLAGS_MASK			(XDP_FLAGS_UPDATE_IF_NOEXIST | \
+					 XDP_FLAGS_SKB_MODE)
 
 enum {
 	IFLA_XDP_UNSPEC,
