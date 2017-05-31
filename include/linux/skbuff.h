@@ -1937,6 +1937,15 @@ static inline unsigned char *__skb_put(struct sk_buff *skb, unsigned int len)
 	return tmp;
 }
 
+static inline unsigned char *skb_put_zero(struct sk_buff *skb, unsigned int len)
+{
+	unsigned char *tmp = skb_put(skb, len);
+
+	memset(tmp, 0, len);
+
+	return tmp;
+}
+
 unsigned char *skb_push(struct sk_buff *skb, unsigned int len);
 static inline unsigned char *__skb_push(struct sk_buff *skb, unsigned int len)
 {
@@ -3056,6 +3065,13 @@ static inline void skb_frag_list_init(struct sk_buff *skb)
 
 int __skb_wait_for_more_packets(struct sock *sk, int *err, long *timeo_p,
 				const struct sk_buff *skb);
+struct sk_buff *__skb_try_recv_from_queue(struct sock *sk,
+					  struct sk_buff_head *queue,
+					  unsigned int flags,
+					  void (*destructor)(struct sock *sk,
+							   struct sk_buff *skb),
+					  int *peeked, int *off, int *err,
+					  struct sk_buff **last);
 struct sk_buff *__skb_try_recv_datagram(struct sock *sk, unsigned flags,
 					void (*destructor)(struct sock *sk,
 							   struct sk_buff *skb),
