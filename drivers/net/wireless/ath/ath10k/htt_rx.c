@@ -1638,7 +1638,9 @@ static bool ath10k_htt_rx_proc_rx_ind_hl(struct ath10k_htt *htt,
 				   RX_FLAG_MMIC_STRIPPED;
 	}
 
+	local_bh_disable();
 	ieee80211_rx(ar->hw, skb);
+	local_bh_enable();
 
 	/* We have delivered the skb to the upper layers (mac80211) so we
 	 * must not free it.
