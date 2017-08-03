@@ -409,6 +409,9 @@ int ath10k_htt_tx_start(struct ath10k_htt *htt)
 	if (htt->tx_mem_allocated)
 		return 0;
 
+	if (ar->is_high_latency)
+		return 0;
+
 	ret = ath10k_htt_tx_alloc_buf(htt);
 	if (ret)
 		goto free_idr_pending_tx;
