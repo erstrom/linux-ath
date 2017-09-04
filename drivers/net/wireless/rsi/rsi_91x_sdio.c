@@ -584,7 +584,6 @@ static int rsi_sdio_load_data_master_write(struct rsi_hw *adapter,
 	}
 
 	for (offset = 0, i = 0; i < num_blocks; i++, offset += block_size) {
-		memset(temp_buf, 0, block_size);
 		memcpy(temp_buf, ta_firmware + offset, block_size);
 		lsb_address = (u16)base_address;
 		status = rsi_sdio_write_register_multiple
@@ -860,7 +859,7 @@ static int rsi_init_sdio_interface(struct rsi_hw *adapter,
 	sdio_release_host(pfunction);
 
 	adapter->determine_event_timeout = rsi_sdio_determine_event_timeout;
-	adapter->check_hw_queue_status = rsi_sdio_read_buffer_status_register;
+	adapter->check_hw_queue_status = rsi_sdio_check_buffer_status;
 
 #ifdef CONFIG_RSI_DEBUGFS
 	adapter->num_debugfs_entries = MAX_DEBUGFS_ENTRIES;
