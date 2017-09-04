@@ -1124,8 +1124,8 @@ struct xfrmdev_ops {
  *	This function is used to submit a XDP packet for transmit on a
  *	netdevice.
  * void (*ndo_xdp_flush)(struct net_device *dev);
- *	This function is used to inform the driver to flush a paticular
- *	xpd tx queue. Must be called on same CPU as xdp_xmit.
+ *	This function is used to inform the driver to flush a particular
+ *	xdp tx queue. Must be called on same CPU as xdp_xmit.
  */
 struct net_device_ops {
 	int			(*ndo_init)(struct net_device *dev);
@@ -1791,7 +1791,7 @@ struct net_device {
 #endif
 	struct netdev_queue __rcu *ingress_queue;
 #ifdef CONFIG_NETFILTER_INGRESS
-	struct nf_hook_entry __rcu *nf_hooks_ingress;
+	struct nf_hook_entries __rcu *nf_hooks_ingress;
 #endif
 
 	unsigned char		broadcast[MAX_ADDR_LEN];
