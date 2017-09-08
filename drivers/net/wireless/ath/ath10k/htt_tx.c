@@ -962,11 +962,25 @@ int ath10k_htt_tx_hl(struct ath10k_htt *htt, enum ath10k_hw_txrx_mode txmode,
 	struct htt_cmd_hdr *cmd_hdr;
 	struct htt_data_tx_desc *tx_desc;
 	struct ath10k_skb_cb *skb_cb = ATH10K_SKB_CB(msdu);
-	u8 flags0;
+	u8 flags0 = 0;
 	u16 flags1 = 0;
 
 	data_len = msdu->len;
-	flags0 = SM(txmode, HTT_DATA_TX_DESC_FLAGS0_PKT_TYPE);
+
+	switch (txmode) {
+	case ATH10K_HW_TXRX_RAW:
+	case ATH10K_HW_TXRX_NATIVE_WIFI:
+		flags0 |= HTT_DATA_TX_DESC_FLAGS0_MAC_HDR_PRESENT;
+		/* fall through */
+	case ATH10K_HW_TXRX_ETHERNET:
+		flags0 |= SM(txmode, HTT_DATA_TX_DESC_FLAGS0_PKT_TYPE);
+		break;
+	case ATH10K_HW_TXRX_MGMT:
+		flags0 |= SM(ATH10K_HW_TXRX_MGMT,
+			     HTT_DATA_TX_DESC_FLAGS0_PKT_TYPE);
+		flags0 |= HTT_DATA_TX_DESC_FLAGS0_MAC_HDR_PRESENT;
+		break;
+	}
 
 	if (skb_cb->flags & ATH10K_SKB_F_NO_HWCRYPT)
 		flags0 |= HTT_DATA_TX_DESC_FLAGS0_NO_ENCRYPT;
