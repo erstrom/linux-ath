@@ -2160,14 +2160,6 @@ int ath10k_core_start(struct ath10k *ar, enum ath10k_firmware_mode mode,
 		goto err_htt_tx_detach;
 	}
 
-	if (!ar->is_high_latency) {
-		status = ath10k_htt_rx_alloc(&ar->htt);
-		if (status) {
-			ath10k_err(ar, "failed to alloc htt rx: %d\n", status);
-			goto err_htt_tx_detach;
-		}
-	}
-
 	status = ath10k_hif_start(ar);
 	if (status) {
 		ath10k_err(ar, "could not start HIF: %d\n", status);
