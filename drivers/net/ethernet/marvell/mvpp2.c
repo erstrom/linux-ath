@@ -7504,9 +7504,7 @@ static int mvpp2_port_probe(struct platform_device *pdev,
 	struct mvpp2_port_pcpu *port_pcpu;
 	struct net_device *dev;
 	struct resource *res;
-	const char *dt_mac_addr;
-	const char *mac_from = "";
-	char hw_mac_addr[ETH_ALEN] = {0};
+	char *mac_from = "";
 	unsigned int ntxqs, nrxqs;
 	bool has_tx_irqs;
 	u32 id;
