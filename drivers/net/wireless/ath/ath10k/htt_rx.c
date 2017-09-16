@@ -1604,6 +1604,7 @@ static bool ath10k_htt_rx_proc_rx_ind_hl(struct ath10k_htt *htt,
 	u8 rx_desc_len;
 	int num_mpdu_ranges;
 	size_t tot_hdr_len;
+	struct ieee80211_channel *ch;
 
 	peer_id = __le16_to_cpu(rx->hdr.peer_id);
 
@@ -1638,14 +1639,35 @@ static bool ath10k_htt_rx_proc_rx_ind_hl(struct ath10k_htt *htt,
 	 */
 	tot_hdr_len = sizeof(struct htt_resp_hdr) + sizeof(rx->hdr) +
 		      sizeof(rx->ppdu) + sizeof(rx->prefix) +
-		      sizeof(rx->fw_desc) + sizeof(*mpdu_ranges) + rx_desc_len;
+		      sizeof(rx->fw_desc) +
+		      sizeof(*mpdu_ranges) * num_mpdu_ranges + rx_desc_len;
 	skb_pull(skb, tot_hdr_len);
 
 	hdr = (struct ieee80211_hdr *)skb->data;
 	rx_status = IEEE80211_SKB_RXCB(skb);
+	rx_status->chains |= BIT(0);
 	rx_status->signal = ATH10K_DEFAULT_NOISE_FLOOR +
 			    rx->ppdu.combined_rssi;
 	rx_status->flag &= ~RX_FLAG_NO_SIGNAL_VAL;
+
+	spin_lock_bh(&ar->data_lock);
+	ch = ar->scan_channel;
+	if (!ch)
+		ch = ar->rx_channel;
+	if (!ch)
+		ch = ath10k_htt_rx_h_any_channel(ar);
+	if (!ch)
+		ch = ar->tgt_oper_chan;
+	spin_unlock_bh(&ar->data_lock);
+
+	if (ch) {
+		rx_status->band = ch->band;
+		rx_status->freq = ch->center_freq;
+	}
+	if (rx->fw_desc.flags & FW_RX_DESC_FLAGS_LAST_MSDU)
+		rx_status->flag &= ~RX_FLAG_AMSDU_MORE;
+	else
+		rx_status->flag |= RX_FLAG_AMSDU_MORE;
 
 	/* Not entirely sure about this, but all frames from the chipset has
 	 * the protected flag set even though they have already been decrypted.
