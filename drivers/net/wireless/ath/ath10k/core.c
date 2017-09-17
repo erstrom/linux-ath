@@ -2083,10 +2083,12 @@ int ath10k_core_start(struct ath10k *ar, enum ath10k_firmware_mode mode,
 	ar->htt.rx_ring.in_ord_rx = !!(test_bit(WMI_SERVICE_RX_FULL_REORDER,
 						ar->wmi.svc_map));
 
-	status = ath10k_htt_rx_alloc(&ar->htt);
-	if (status) {
-		ath10k_err(ar, "failed to alloc htt rx: %d\n", status);
-		goto err_htt_tx_detach;
+	if (!ar->is_high_latency) {
+		status = ath10k_htt_rx_alloc(&ar->htt);
+		if (status) {
+			ath10k_err(ar, "failed to alloc htt rx: %d\n", status);
+			goto err_htt_tx_detach;
+		}
 	}
 
 	status = ath10k_hif_start(ar);
@@ -2203,10 +2205,13 @@ int ath10k_core_start(struct ath10k *ar, enum ath10k_firmware_mode mode,
 		}
 	}
 
-	status = ath10k_htt_rx_ring_refill(ar);
-	if (status) {
-		ath10k_err(ar, "failed to refill htt rx ring: %d\n", status);
-		goto err_hif_stop;
+	if (!ar->is_high_latency) {
+		status = ath10k_htt_rx_ring_refill(ar);
+		if (status) {
+			ath10k_err(ar, "failed to refill htt rx ring: %d\n",
+				   status);
+			goto err_hif_stop;
+		}
 	}
 
 	if (ar->max_num_vdevs >= 64)
@@ -2235,7 +2240,8 @@ int ath10k_core_start(struct ath10k *ar, enum ath10k_firmware_mode mode,
 err_hif_stop:
 	ath10k_hif_stop(ar);
 err_htt_rx_detach:
-	ath10k_htt_rx_free(&ar->htt);
+	if (!ar->is_high_latency)
+		ath10k_htt_rx_free(&ar->htt);
 err_htt_tx_detach:
 	ath10k_htt_tx_free(&ar->htt);
 err_wmi_detach:
@@ -2280,7 +2286,8 @@ void ath10k_core_stop(struct ath10k *ar)
 
 	ath10k_hif_stop(ar);
 	ath10k_htt_tx_stop(&ar->htt);
-	ath10k_htt_rx_free(&ar->htt);
+	if (!ar->is_high_latency)
+		ath10k_htt_rx_free(&ar->htt);
 	ath10k_wmi_detach(ar);
 	ar->is_started = false;
 }
