@@ -60,7 +60,7 @@ enum RSI_FSM_STATES {
 extern u32 rsi_zone_enabled;
 extern __printf(2, 3) void rsi_dbg(u32 zone, const char *fmt, ...);
 
-#define RSI_MAX_VIFS                    1
+#define RSI_MAX_VIFS                    3
 #define NUM_EDCA_QUEUES                 4
 #define IEEE80211_ADDR_LEN              6
 #define FRAME_DESC_SZ                   16
@@ -124,6 +124,8 @@ struct skb_info {
 	s8 tid;
 	s8 sta_id;
 	u8 internal_hdr_size;
+	struct ieee80211_vif *vif;
+	u8 vap_id;
 };
 
 enum edca_queue {
@@ -157,6 +159,7 @@ struct vif_priv {
 	bool is_ht;
 	bool sgi;
 	u16 seq_start;
+	int vap_id;
 };
 
 struct rsi_event {
@@ -270,6 +273,11 @@ struct rsi_common {
 	int num_stations;
 	int max_stations;
 	struct ieee80211_key_conf *key;
+
+	/* Wi-Fi direct mode related */
+	bool p2p_enabled;
+	struct timer_list roc_timer;
+	struct ieee80211_vif *roc_vif;
 };
 
 enum host_intf {
