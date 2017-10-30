@@ -1194,9 +1194,9 @@ endlookup:
 	return err;
 }
 
-void mesh_path_timer(unsigned long data)
+void mesh_path_timer(struct timer_list *t)
 {
-	struct mesh_path *mpath = (void *) data;
+	struct mesh_path *mpath = from_timer(mpath, t, timer);
 	struct ieee80211_sub_if_data *sdata = mpath->sdata;
 	int ret;
 
@@ -1247,6 +1247,7 @@ void mesh_path_tx_root_frame(struct ieee80211_sub_if_data *sdata)
 		break;
 	case IEEE80211_PROACTIVE_PREQ_WITH_PREP:
 		flags |= IEEE80211_PREQ_PROACTIVE_PREP_FLAG;
+		/* fall through */
 	case IEEE80211_PROACTIVE_PREQ_NO_PREP:
 		interval = ifmsh->mshcfg.dot11MeshHWMPactivePathToRootTimeout;
 		target_flags |= IEEE80211_PREQ_TO_FLAG |
