@@ -1007,7 +1007,7 @@ static int check_mem_access(struct bpf_verifier_env *env, int insn_idx, u32 regn
 		 * determine what type of data were returned.
 		 */
 		if (reg->off) {
-			verbose("dereference of modified ctx ptr R%d off=%d+%d, ctx+const is allowed, ctx+const+const is not\n",
+			verbose(env, "dereference of modified ctx ptr R%d off=%d+%d, ctx+const is allowed, ctx+const+const is not\n",
 				regno, reg->off, off - reg->off);
 			return -EACCES;
 		}
@@ -2351,8 +2351,7 @@ static void find_good_pkt_pointers(struct bpf_verifier_state *state,
 	u16 new_range;
 	int i;
 
-	if (dst_reg->off < 0 ||
-	    (dst_reg->off == 0 && range_right_open))
+	if (dst_reg->off < 0)
 		/* This doesn't give us any range */
 		return;
 
@@ -2364,8 +2363,6 @@ static void find_good_pkt_pointers(struct bpf_verifier_state *state,
 		return;
 
 	new_range = dst_reg->off;
-	if (range_right_open)
-		new_range--;
 
 	/* Examples for register markings:
 	 *

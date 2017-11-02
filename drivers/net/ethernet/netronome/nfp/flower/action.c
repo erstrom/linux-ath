@@ -245,8 +245,6 @@ nfp_fl_set_eth(const struct tc_action *action, int idx, u32 off,
 
 	if (off + 4 > ETH_ALEN * 2)
 		return -EOPNOTSUPP;
-	if (!nfp_netdev_is_nfp_repr(out_dev))
-		return -EOPNOTSUPP;
 
 	mask = ~tcf_pedit_mask(action, idx);
 	exact = tcf_pedit_val(action, idx);
