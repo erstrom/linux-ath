@@ -4927,6 +4927,14 @@ void t4_intr_disable(struct adapter *adapter)
 	t4_set_reg_field(adapter, PL_INT_MAP0_A, 1 << pf, 0);
 }
 
+unsigned int t4_chip_rss_size(struct adapter *adap)
+{
+	if (CHELSIO_CHIP_VERSION(adap->params.chip) <= CHELSIO_T5)
+		return RSS_NENTRIES;
+	else
+		return T6_RSS_NENTRIES;
+}
+
 /**
  *	t4_config_rss_range - configure a portion of the RSS mapping table
  *	@adapter: the adapter
@@ -5065,10 +5073,11 @@ static int rd_rss_row(struct adapter *adap, int row, u32 *val)
  */
 int t4_read_rss(struct adapter *adapter, u16 *map)
 {
+	int i, ret, nentries;
 	u32 val;
-	int i, ret;
 
-	for (i = 0; i < RSS_NENTRIES / 2; ++i) {
+	nentries = t4_chip_rss_size(adapter);
+	for (i = 0; i < nentries / 2; ++i) {
 		ret = rd_rss_row(adapter, i, &val);
 		if (ret)
 			return ret;
@@ -8498,22 +8507,6 @@ found:
 	return 0;
 }
 
-static void set_pcie_completion_timeout(struct adapter *adapter, u8 range)
-{
-	u16 val;
-	u32 pcie_cap;
-
-	pcie_cap = pci_find_capability(adapter->pdev, PCI_CAP_ID_EXP);
-	if (pcie_cap) {
-		pci_read_config_word(adapter->pdev,
-				     pcie_cap + PCI_EXP_DEVCTL2, &val);
-		val &= ~PCI_EXP_DEVCTL2_COMP_TIMEOUT;
-		val |= range;
-		pci_write_config_word(adapter->pdev,
-				      pcie_cap + PCI_EXP_DEVCTL2, val);
-	}
-}
-
 /**
  *	t4_prep_adapter - prepare SW and HW for operation
  *	@adapter: the adapter
@@ -8599,8 +8592,9 @@ int t4_prep_adapter(struct adapter *adapter)
 	adapter->params.portvec = 1;
 	adapter->params.vpd.cclk = 50000;
 
-	/* Set pci completion timeout value to 4 seconds. */
-	set_pcie_completion_timeout(adapter, 0xd);
+	/* Set PCIe completion timeout to 4 seconds. */
+	pcie_capability_clear_and_set_word(adapter->pdev, PCI_EXP_DEVCTL2,
+					   PCI_EXP_DEVCTL2_COMP_TIMEOUT, 0xd);
 	return 0;
 }
 
@@ -9742,4 +9736,60 @@ int t4_sched_params(struct adapter *adapter, int type, int level, int mode,
 
 	return t4_wr_mbox_meat(adapter, adapter->mbox, &cmd, sizeof(cmd),
 			       NULL, 1);
+}
+
+/**
+ *	t4_i2c_rd - read I2C data from adapter
+ *	@adap: the adapter
+ *	@port: Port number if per-port device; <0 if not
+ *	@devid: per-port device ID or absolute device ID
+ *	@offset: byte offset into device I2C space
+ *	@len: byte length of I2C space data
+ *	@buf: buffer in which to return I2C data
+ *
+ *	Reads the I2C data from the indicated device and location.
+ */
+int t4_i2c_rd(struct adapter *adap, unsigned int mbox, int port,
+	      unsigned int devid, unsigned int offset,
+	      unsigned int len, u8 *buf)
+{
+	struct fw_ldst_cmd ldst_cmd, ldst_rpl;
+	unsigned int i2c_max = sizeof(ldst_cmd.u.i2c.data);
+	int ret = 0;
+
+	if (len > I2C_PAGE_SIZE)
+		return -EINVAL;
+
+	/* Dont allow reads that spans multiple pages */
+	if (offset < I2C_PAGE_SIZE && offset + len > I2C_PAGE_SIZE)
+		return -EINVAL;
+
+	memset(&ldst_cmd, 0, sizeof(ldst_cmd));
+	ldst_cmd.op_to_addrspace =
+		cpu_to_be32(FW_CMD_OP_V(FW_LDST_CMD) |
+			    FW_CMD_REQUEST_F |
+			    FW_CMD_READ_F |
+			    FW_LDST_CMD_ADDRSPACE_V(FW_LDST_ADDRSPC_I2C));
+	ldst_cmd.cycles_to_len16 = cpu_to_be32(FW_LEN16(ldst_cmd));
+	ldst_cmd.u.i2c.pid = (port < 0 ? 0xff : port);
+	ldst_cmd.u.i2c.did = devid;
+
+	while (len > 0) {
+		unsigned int i2c_len = (len < i2c_max) ? len : i2c_max;
+
+		ldst_cmd.u.i2c.boffset = offset;
+		ldst_cmd.u.i2c.blen = i2c_len;
+
+		ret = t4_wr_mbox(adap, mbox, &ldst_cmd, sizeof(ldst_cmd),
+				 &ldst_rpl);
+		if (ret)
+			break;
+
+		memcpy(buf, ldst_rpl.u.i2c.data, i2c_len);
+		offset += i2c_len;
+		buf += i2c_len;
+		len -= i2c_len;
+	}
+
+	return ret;
 }

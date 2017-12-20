@@ -135,7 +135,9 @@ static int mdio_bus_phy_resume(struct device *dev)
 	if (!mdio_bus_phy_may_suspend(phydev))
 		goto no_resume;
 
+	mutex_lock(&phydev->lock);
 	ret = phy_resume(phydev);
+	mutex_unlock(&phydev->lock);
 	if (ret < 0)
 		return ret;
 
@@ -1039,7 +1041,9 @@ int phy_attach_direct(struct net_device *dev, struct phy_device *phydev,
 	if (err)
 		goto error;
 
+	mutex_lock(&phydev->lock);
 	phy_resume(phydev);
+	mutex_unlock(&phydev->lock);
 	phy_led_triggers_register(phydev);
 
 	return err;
@@ -1173,6 +1177,8 @@ int phy_resume(struct phy_device *phydev)
 	struct phy_driver *phydrv = to_phy_driver(phydev->mdio.dev.driver);
 	int ret = 0;
 
+	WARN_ON(!mutex_is_locked(&phydev->lock));
+
 	if (phydev->drv && phydrv->resume)
 		ret = phydrv->resume(phydev);
 
@@ -1217,6 +1223,30 @@ out:
 	return ret;
 }
 EXPORT_SYMBOL(phy_loopback);
+
+/**
+ * phy_reset_after_clk_enable - perform a PHY reset if needed
+ * @phydev: target phy_device struct
+ *
+ * Description: Some PHYs are known to need a reset after their refclk was
+ *   enabled. This function evaluates the flags and perform the reset if it's
+ *   needed. Returns < 0 on error, 0 if the phy wasn't reset and 1 if the phy
+ *   was reset.
+ */
+int phy_reset_after_clk_enable(struct phy_device *phydev)
+{
+	if (!phydev || !phydev->drv)
+		return -ENODEV;
+
+	if (phydev->drv->flags & PHY_RST_AFTER_CLK_EN) {
+		phy_device_reset(phydev, 1);
+		phy_device_reset(phydev, 0);
+		return 1;
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(phy_reset_after_clk_enable);
 
 /* Generic PHY support and helper functions */
 
@@ -1655,12 +1685,8 @@ int genphy_resume(struct phy_device *phydev)
 {
 	int value;
 
-	mutex_lock(&phydev->lock);
-
 	value = phy_read(phydev, MII_BMCR);
 	phy_write(phydev, MII_BMCR, value & ~BMCR_PDOWN);
-
-	mutex_unlock(&phydev->lock);
 
 	return 0;
 }

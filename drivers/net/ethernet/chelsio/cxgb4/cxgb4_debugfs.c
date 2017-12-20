@@ -2021,11 +2021,12 @@ static int rss_show(struct seq_file *seq, void *v, int idx)
 
 static int rss_open(struct inode *inode, struct file *file)
 {
-	int ret;
-	struct seq_tab *p;
 	struct adapter *adap = inode->i_private;
+	int ret, nentries;
+	struct seq_tab *p;
 
-	p = seq_open_tab(file, RSS_NENTRIES / 8, 8 * sizeof(u16), 0, rss_show);
+	nentries = t4_chip_rss_size(adap);
+	p = seq_open_tab(file, nentries / 8, 8 * sizeof(u16), 0, rss_show);
 	if (!p)
 		return -ENOMEM;
 
@@ -2668,9 +2669,13 @@ static const struct file_operations mem_debugfs_fops = {
 
 static int tid_info_show(struct seq_file *seq, void *v)
 {
+	unsigned int tid_start = 0;
 	struct adapter *adap = seq->private;
 	const struct tid_info *t = &adap->tids;
 	enum chip_type chip = CHELSIO_CHIP_VERSION(adap->params.chip);
+
+	if (chip > CHELSIO_T5)
+		tid_start = t4_read_reg(adap, LE_DB_ACTIVE_TABLE_START_INDEX_A);
 
 	if (t4_read_reg(adap, LE_DB_CONFIG_A) & HASHEN_F) {
 		unsigned int sb;
@@ -2683,8 +2688,8 @@ static int tid_info_show(struct seq_file *seq, void *v)
 			sb = t4_read_reg(adap, LE_DB_SRVR_START_INDEX_A);
 
 		if (sb) {
-			seq_printf(seq, "TID range: 0..%u/%u..%u", sb - 1,
-				   adap->tids.hash_base,
+			seq_printf(seq, "TID range: %u..%u/%u..%u", tid_start,
+				   sb - 1, adap->tids.hash_base,
 				   t->ntids - 1);
 			seq_printf(seq, ", in use: %u/%u\n",
 				   atomic_read(&t->tids_in_use),
@@ -2709,7 +2714,8 @@ static int tid_info_show(struct seq_file *seq, void *v)
 		seq_printf(seq, "Connections in use: %u\n",
 			   atomic_read(&t->conns_in_use));
 
-		seq_printf(seq, "TID range: 0..%u", t->ntids - 1);
+		seq_printf(seq, "TID range: %u..%u", tid_start,
+			   tid_start + t->ntids - 1);
 		seq_printf(seq, ", in use: %u\n",
 			   atomic_read(&t->tids_in_use));
 	}

@@ -54,6 +54,8 @@ struct phylink {
 	/* The link configuration settings */
 	struct phylink_link_state link_config;
 	struct gpio_desc *link_gpio;
+	void (*get_fixed_state)(struct net_device *dev,
+				struct phylink_link_state *s);
 
 	struct mutex state_mutex;
 	struct phylink_link_state phy_state;
@@ -350,12 +352,14 @@ static int phylink_get_mac_state(struct phylink *pl, struct phylink_link_state *
 }
 
 /* The fixed state is... fixed except for the link state,
- * which may be determined by a GPIO.
+ * which may be determined by a GPIO or a callback.
  */
 static void phylink_get_fixed_state(struct phylink *pl, struct phylink_link_state *state)
 {
 	*state = pl->link_config;
-	if (pl->link_gpio)
+	if (pl->get_fixed_state)
+		pl->get_fixed_state(pl->netdev, state);
+	else if (pl->link_gpio)
 		state->link = !!gpiod_get_value(pl->link_gpio);
 }
 
@@ -502,6 +506,9 @@ static int phylink_register_sfp(struct phylink *pl,
 	struct fwnode_reference_args ref;
 	int ret;
 
+	if (!fwnode)
+		return 0;
+
 	ret = fwnode_property_get_reference_args(fwnode, "sfp", NULL,
 						 0, 0, &ref);
 	if (ret < 0) {
@@ -552,7 +559,10 @@ struct phylink *phylink_create(struct net_device *ndev,
 	pl->netdev = ndev;
 	pl->phy_state.interface = iface;
 	pl->link_interface = iface;
-	pl->link_port = PORT_MII;
+	if (iface == PHY_INTERFACE_MODE_MOCA)
+		pl->link_port = PORT_BNC;
+	else
+		pl->link_port = PORT_MII;
 	pl->link_config.interface = iface;
 	pl->link_config.pause = MLO_PAUSE_AN;
 	pl->link_config.speed = SPEED_UNKNOWN;
@@ -715,6 +725,12 @@ int phylink_connect_phy(struct phylink *pl, struct phy_device *phy)
 		     phy_interface_mode_is_8023z(pl->link_interface))))
 		return -EINVAL;
 
+	/* Use PHY device/driver interface */
+	if (pl->link_interface == PHY_INTERFACE_MODE_NA) {
+		pl->link_interface = phy->interface;
+		pl->link_config.interface = pl->link_interface;
+	}
+
 	ret = phy_attach_direct(pl->netdev, phy, 0, pl->link_interface);
 	if (ret)
 		return ret;
@@ -731,6 +747,7 @@ EXPORT_SYMBOL_GPL(phylink_connect_phy);
  * phylink_of_phy_connect() - connect the PHY specified in the DT mode.
  * @pl: a pointer to a &struct phylink returned from phylink_create()
  * @dn: a pointer to a &struct device_node.
+ * @flags: PHY-specific flags to communicate to the PHY device driver
  *
  * Connect the phy specified in the device node @dn to the phylink instance
  * specified by @pl. Actions specified in phylink_connect_phy() will be
@@ -738,7 +755,8 @@ EXPORT_SYMBOL_GPL(phylink_connect_phy);
  *
  * Returns 0 on success or a negative errno.
  */
-int phylink_of_phy_connect(struct phylink *pl, struct device_node *dn)
+int phylink_of_phy_connect(struct phylink *pl, struct device_node *dn,
+			   u32 flags)
 {
 	struct device_node *phy_node;
 	struct phy_device *phy_dev;
@@ -757,14 +775,13 @@ int phylink_of_phy_connect(struct phylink *pl, struct device_node *dn)
 		phy_node = of_parse_phandle(dn, "phy-device", 0);
 
 	if (!phy_node) {
-		if (pl->link_an_mode == MLO_AN_PHY) {
-			netdev_err(pl->netdev, "unable to find PHY node\n");
+		if (pl->link_an_mode == MLO_AN_PHY)
 			return -ENODEV;
-		}
 		return 0;
 	}
 
-	phy_dev = of_phy_attach(pl->netdev, phy_node, 0, pl->link_interface);
+	phy_dev = of_phy_attach(pl->netdev, phy_node, flags,
+				pl->link_interface);
 	/* We're done with the phy_node handle */
 	of_node_put(phy_node);
 
@@ -790,7 +807,7 @@ void phylink_disconnect_phy(struct phylink *pl)
 {
 	struct phy_device *phy;
 
-	WARN_ON(!lockdep_rtnl_is_held());
+	ASSERT_RTNL();
 
 	phy = pl->phydev;
 	if (phy) {
@@ -806,6 +823,32 @@ void phylink_disconnect_phy(struct phylink *pl)
 	}
 }
 EXPORT_SYMBOL_GPL(phylink_disconnect_phy);
+
+/**
+ * phylink_fixed_state_cb() - allow setting a fixed link callback
+ * @pl: a pointer to a &struct phylink returned from phylink_create()
+ * @cb: callback to execute to determine the fixed link state.
+ *
+ * The MAC driver should call this driver when the state of its link
+ * can be determined through e.g: an out of band MMIO register.
+ */
+int phylink_fixed_state_cb(struct phylink *pl,
+			   void (*cb)(struct net_device *dev,
+				      struct phylink_link_state *state))
+{
+	/* It does not make sense to let the link be overriden unless we use
+	 * MLO_AN_FIXED
+	 */
+	if (pl->link_an_mode != MLO_AN_FIXED)
+		return -EINVAL;
+
+	mutex_lock(&pl->state_mutex);
+	pl->get_fixed_state = cb;
+	mutex_unlock(&pl->state_mutex);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(phylink_fixed_state_cb);
 
 /**
  * phylink_mac_change() - notify phylink of a change in MAC state
@@ -834,7 +877,7 @@ EXPORT_SYMBOL_GPL(phylink_mac_change);
  */
 void phylink_start(struct phylink *pl)
 {
-	WARN_ON(!lockdep_rtnl_is_held());
+	ASSERT_RTNL();
 
 	netdev_info(pl->netdev, "configuring for %s/%s link mode\n",
 		    phylink_an_mode_str(pl->link_an_mode),
@@ -874,7 +917,7 @@ EXPORT_SYMBOL_GPL(phylink_start);
  */
 void phylink_stop(struct phylink *pl)
 {
-	WARN_ON(!lockdep_rtnl_is_held());
+	ASSERT_RTNL();
 
 	if (pl->phydev)
 		phy_stop(pl->phydev);
@@ -898,7 +941,7 @@ EXPORT_SYMBOL_GPL(phylink_stop);
  */
 void phylink_ethtool_get_wol(struct phylink *pl, struct ethtool_wolinfo *wol)
 {
-	WARN_ON(!lockdep_rtnl_is_held());
+	ASSERT_RTNL();
 
 	wol->supported = 0;
 	wol->wolopts = 0;
@@ -923,7 +966,7 @@ int phylink_ethtool_set_wol(struct phylink *pl, struct ethtool_wolinfo *wol)
 {
 	int ret = -EOPNOTSUPP;
 
-	WARN_ON(!lockdep_rtnl_is_held());
+	ASSERT_RTNL();
 
 	if (pl->phydev)
 		ret = phy_ethtool_set_wol(pl->phydev, wol);
@@ -968,7 +1011,7 @@ int phylink_ethtool_ksettings_get(struct phylink *pl,
 {
 	struct phylink_link_state link_state;
 
-	WARN_ON(!lockdep_rtnl_is_held());
+	ASSERT_RTNL();
 
 	if (pl->phydev) {
 		phy_ethtool_ksettings_get(pl->phydev, kset);
@@ -1021,7 +1064,7 @@ int phylink_ethtool_ksettings_set(struct phylink *pl,
 	struct phylink_link_state config;
 	int ret;
 
-	WARN_ON(!lockdep_rtnl_is_held());
+	ASSERT_RTNL();
 
 	if (kset->base.autoneg != AUTONEG_DISABLE &&
 	    kset->base.autoneg != AUTONEG_ENABLE)
@@ -1122,7 +1165,7 @@ int phylink_ethtool_nway_reset(struct phylink *pl)
 {
 	int ret = 0;
 
-	WARN_ON(!lockdep_rtnl_is_held());
+	ASSERT_RTNL();
 
 	if (pl->phydev)
 		ret = phy_restart_aneg(pl->phydev);
@@ -1140,7 +1183,7 @@ EXPORT_SYMBOL_GPL(phylink_ethtool_nway_reset);
 void phylink_ethtool_get_pauseparam(struct phylink *pl,
 				    struct ethtool_pauseparam *pause)
 {
-	WARN_ON(!lockdep_rtnl_is_held());
+	ASSERT_RTNL();
 
 	pause->autoneg = !!(pl->link_config.pause & MLO_PAUSE_AN);
 	pause->rx_pause = !!(pl->link_config.pause & MLO_PAUSE_RX);
@@ -1158,7 +1201,7 @@ int phylink_ethtool_set_pauseparam(struct phylink *pl,
 {
 	struct phylink_link_state *config = &pl->link_config;
 
-	WARN_ON(!lockdep_rtnl_is_held());
+	ASSERT_RTNL();
 
 	if (!phylink_test(pl->supported, Pause) &&
 	    !phylink_test(pl->supported, Asym_Pause))
@@ -1244,7 +1287,7 @@ int phylink_get_eee_err(struct phylink *pl)
 {
 	int ret = 0;
 
-	WARN_ON(!lockdep_rtnl_is_held());
+	ASSERT_RTNL();
 
 	if (pl->phydev)
 		ret = phy_get_eee_err(pl->phydev);
@@ -1262,7 +1305,7 @@ int phylink_ethtool_get_eee(struct phylink *pl, struct ethtool_eee *eee)
 {
 	int ret = -EOPNOTSUPP;
 
-	WARN_ON(!lockdep_rtnl_is_held());
+	ASSERT_RTNL();
 
 	if (pl->phydev)
 		ret = phy_ethtool_get_eee(pl->phydev, eee);
@@ -1280,7 +1323,7 @@ int phylink_ethtool_set_eee(struct phylink *pl, struct ethtool_eee *eee)
 {
 	int ret = -EOPNOTSUPP;
 
-	WARN_ON(!lockdep_rtnl_is_held());
+	ASSERT_RTNL();
 
 	if (pl->phydev)
 		ret = phy_ethtool_set_eee(pl->phydev, eee);
@@ -1470,7 +1513,7 @@ int phylink_mii_ioctl(struct phylink *pl, struct ifreq *ifr, int cmd)
 	struct mii_ioctl_data *mii = if_mii(ifr);
 	int  ret;
 
-	WARN_ON(!lockdep_rtnl_is_held());
+	ASSERT_RTNL();
 
 	if (pl->phydev) {
 		/* PHYs only exist for MLO_AN_PHY and SGMII */
@@ -1538,7 +1581,7 @@ static int phylink_sfp_module_insert(void *upstream,
 	port = sfp_parse_port(pl->sfp_bus, id, support);
 	iface = sfp_parse_interface(pl->sfp_bus, id);
 
-	WARN_ON(!lockdep_rtnl_is_held());
+	ASSERT_RTNL();
 
 	switch (iface) {
 	case PHY_INTERFACE_MODE_SGMII:
@@ -1607,7 +1650,7 @@ static void phylink_sfp_link_down(void *upstream)
 {
 	struct phylink *pl = upstream;
 
-	WARN_ON(!lockdep_rtnl_is_held());
+	ASSERT_RTNL();
 
 	set_bit(PHYLINK_DISABLE_LINK, &pl->phylink_disable_state);
 	flush_work(&pl->resolve);
@@ -1619,7 +1662,7 @@ static void phylink_sfp_link_up(void *upstream)
 {
 	struct phylink *pl = upstream;
 
-	WARN_ON(!lockdep_rtnl_is_held());
+	ASSERT_RTNL();
 
 	clear_bit(PHYLINK_DISABLE_LINK, &pl->phylink_disable_state);
 	phylink_run_resolve(pl);
