@@ -20,6 +20,13 @@
 
 #include "targaddrs.h"
 
+enum ath10k_bus {
+	ATH10K_BUS_PCI,
+	ATH10K_BUS_AHB,
+	ATH10K_BUS_SDIO,
+	ATH10K_BUS_USB,
+};
+
 #define ATH10K_FW_DIR			"ath10k"
 
 #define QCA988X_2_0_DEVICE_ID   (0x003c)
@@ -561,6 +568,11 @@ struct ath10k_hw_params {
 	u32 num_peers;
 	u32 ast_skid_limit;
 	u32 num_wds_entries;
+
+	/* Specifies whether or not the device is a high latency device */
+	bool is_high_latency;
+
+	enum ath10k_bus bus;
 };
 
 struct htt_rx_desc;
@@ -676,6 +688,9 @@ ath10k_rx_desc_get_l3_pad_bytes(struct ath10k_hw_params *hw,
 #define TARGET_HL_10_TLV_NUM_PEERS		14
 #define TARGET_HL_10_TLV_AST_SKID_LIMIT		6
 #define TARGET_HL_10_TLV_NUM_WDS_ENTRIES	2
+/* Target specific defines for QCA9377 high latency firmware
+ * FIXME: check if this is really needed */
+#define TARGET_QCA9377_HL_NUM_PEERS		15
 
 /* Diagnostic Window */
 #define CE_DIAG_PIPE	7
