@@ -55,6 +55,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 	{
 		.id = QCA988X_HW_2_0_VERSION,
 		.dev_id = QCA988X_2_0_DEVICE_ID,
+		.bus = ATH10K_BUS_PCI,
 		.name = "qca988x hw2.0",
 		.patch_load_addr = QCA988X_HW_2_0_PATCH_LOAD_ADDR,
 		.uart_pin = 7,
@@ -82,6 +83,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 	{
 		.id = QCA9887_HW_1_0_VERSION,
 		.dev_id = QCA9887_1_0_DEVICE_ID,
+		.bus = ATH10K_BUS_PCI,
 		.name = "qca9887 hw1.0",
 		.patch_load_addr = QCA9887_HW_1_0_PATCH_LOAD_ADDR,
 		.uart_pin = 7,
@@ -109,6 +111,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 	{
 		.id = QCA6174_HW_2_1_VERSION,
 		.dev_id = QCA6164_2_1_DEVICE_ID,
+		.bus = ATH10K_BUS_PCI,
 		.name = "qca6164 hw2.1",
 		.patch_load_addr = QCA6174_HW_2_1_PATCH_LOAD_ADDR,
 		.uart_pin = 6,
@@ -135,6 +138,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 	{
 		.id = QCA6174_HW_2_1_VERSION,
 		.dev_id = QCA6174_2_1_DEVICE_ID,
+		.bus = ATH10K_BUS_PCI,
 		.name = "qca6174 hw2.1",
 		.patch_load_addr = QCA6174_HW_2_1_PATCH_LOAD_ADDR,
 		.uart_pin = 6,
@@ -161,6 +165,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 	{
 		.id = QCA6174_HW_3_0_VERSION,
 		.dev_id = QCA6174_2_1_DEVICE_ID,
+		.bus = ATH10K_BUS_PCI,
 		.name = "qca6174 hw3.0",
 		.patch_load_addr = QCA6174_HW_3_0_PATCH_LOAD_ADDR,
 		.uart_pin = 6,
@@ -187,6 +192,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 	{
 		.id = QCA6174_HW_3_2_VERSION,
 		.dev_id = QCA6174_2_1_DEVICE_ID,
+		.bus = ATH10K_BUS_PCI,
 		.name = "qca6174 hw3.2",
 		.patch_load_addr = QCA6174_HW_3_0_PATCH_LOAD_ADDR,
 		.uart_pin = 6,
@@ -216,6 +222,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 	{
 		.id = QCA99X0_HW_2_0_DEV_VERSION,
 		.dev_id = QCA99X0_2_0_DEVICE_ID,
+		.bus = ATH10K_BUS_PCI,
 		.name = "qca99x0 hw2.0",
 		.patch_load_addr = QCA99X0_HW_2_0_PATCH_LOAD_ADDR,
 		.uart_pin = 7,
@@ -248,6 +255,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 	{
 		.id = QCA9984_HW_1_0_DEV_VERSION,
 		.dev_id = QCA9984_1_0_DEVICE_ID,
+		.bus = ATH10K_BUS_PCI,
 		.name = "qca9984/qca9994 hw1.0",
 		.patch_load_addr = QCA9984_HW_1_0_PATCH_LOAD_ADDR,
 		.uart_pin = 7,
@@ -285,6 +293,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 	{
 		.id = QCA9888_HW_2_0_DEV_VERSION,
 		.dev_id = QCA9888_2_0_DEVICE_ID,
+		.bus = ATH10K_BUS_PCI,
 		.name = "qca9888 hw2.0",
 		.patch_load_addr = QCA9888_HW_2_0_PATCH_LOAD_ADDR,
 		.uart_pin = 7,
@@ -321,6 +330,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 	{
 		.id = QCA9377_HW_1_0_DEV_VERSION,
 		.dev_id = QCA9377_1_0_DEVICE_ID,
+		.bus = ATH10K_BUS_PCI,
 		.name = "qca9377 hw1.0",
 		.patch_load_addr = QCA9377_HW_1_0_PATCH_LOAD_ADDR,
 		.uart_pin = 6,
@@ -347,6 +357,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 	{
 		.id = QCA9377_HW_1_1_DEV_VERSION,
 		.dev_id = QCA9377_1_0_DEVICE_ID,
+		.bus = ATH10K_BUS_PCI,
 		.name = "qca9377 hw1.1",
 		.patch_load_addr = QCA9377_HW_1_0_PATCH_LOAD_ADDR,
 		.uart_pin = 6,
@@ -375,6 +386,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 	{
 		.id = QCA4019_HW_1_0_DEV_VERSION,
 		.dev_id = 0,
+		.bus = ATH10K_BUS_AHB,
 		.name = "qca4019 hw1.0",
 		.patch_load_addr = QCA4019_HW_1_0_PATCH_LOAD_ADDR,
 		.uart_pin = 7,
@@ -408,6 +420,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 	{
 		.id = WCN3990_HW_1_0_DEV_VERSION,
 		.dev_id = 0,
+		.bus = ATH10K_BUS_PCI,
 		.name = "wcn3990 hw1.0",
 		.continuous_frag_desc = true,
 		.tx_chain_mask = 0x7,
@@ -1753,7 +1766,8 @@ static int ath10k_init_hw_params(struct ath10k *ar)
 	for (i = 0; i < ARRAY_SIZE(ath10k_hw_params_list); i++) {
 		hw_params = &ath10k_hw_params_list[i];
 
-		if (hw_params->id == ar->target_version &&
+		if (hw_params->bus == ar->hif.bus &&
+		    hw_params->id == ar->target_version &&
 		    hw_params->dev_id == ar->dev_id)
 			break;
 	}
@@ -1854,6 +1868,7 @@ static void ath10k_core_set_coverage_class_work(struct work_struct *work)
 static int ath10k_core_init_firmware_features(struct ath10k *ar)
 {
 	struct ath10k_fw_file *fw_file = &ar->normal_mode_fw.fw_file;
+	int max_num_peers;
 
 	if (test_bit(ATH10K_FW_FEATURE_WMI_10_2, fw_file->fw_features) &&
 	    !test_bit(ATH10K_FW_FEATURE_WMI_10X, fw_file->fw_features)) {
@@ -1933,7 +1948,7 @@ static int ath10k_core_init_firmware_features(struct ath10k *ar)
 
 	switch (fw_file->wmi_op_version) {
 	case ATH10K_FW_WMI_OP_VERSION_MAIN:
-		ar->max_num_peers = TARGET_NUM_PEERS;
+		max_num_peers = TARGET_NUM_PEERS;
 		ar->max_num_stations = TARGET_NUM_STATIONS;
 		ar->max_num_vdevs = TARGET_NUM_VDEVS;
 		ar->htt.max_num_pending_tx = TARGET_NUM_MSDU_DESC;
@@ -1945,10 +1960,10 @@ static int ath10k_core_init_firmware_features(struct ath10k *ar)
 	case ATH10K_FW_WMI_OP_VERSION_10_2:
 	case ATH10K_FW_WMI_OP_VERSION_10_2_4:
 		if (ath10k_peer_stats_enabled(ar)) {
-			ar->max_num_peers = TARGET_10X_TX_STATS_NUM_PEERS;
+			max_num_peers = TARGET_10X_TX_STATS_NUM_PEERS;
 			ar->max_num_stations = TARGET_10X_TX_STATS_NUM_STATIONS;
 		} else {
-			ar->max_num_peers = TARGET_10X_NUM_PEERS;
+			max_num_peers = TARGET_10X_NUM_PEERS;
 			ar->max_num_stations = TARGET_10X_NUM_STATIONS;
 		}
 		ar->max_num_vdevs = TARGET_10X_NUM_VDEVS;
@@ -1957,7 +1972,7 @@ static int ath10k_core_init_firmware_features(struct ath10k *ar)
 		ar->max_spatial_stream = WMI_MAX_SPATIAL_STREAM;
 		break;
 	case ATH10K_FW_WMI_OP_VERSION_TLV:
-		ar->max_num_peers = TARGET_TLV_NUM_PEERS;
+		max_num_peers = TARGET_TLV_NUM_PEERS;
 		ar->max_num_stations = TARGET_TLV_NUM_STATIONS;
 		ar->max_num_vdevs = TARGET_TLV_NUM_VDEVS;
 		ar->max_num_tdls_vdevs = TARGET_TLV_NUM_TDLS_VDEVS;
@@ -1968,7 +1983,7 @@ static int ath10k_core_init_firmware_features(struct ath10k *ar)
 		ar->max_spatial_stream = WMI_MAX_SPATIAL_STREAM;
 		break;
 	case ATH10K_FW_WMI_OP_VERSION_10_4:
-		ar->max_num_peers = TARGET_10_4_NUM_PEERS;
+		max_num_peers = TARGET_10_4_NUM_PEERS;
 		ar->max_num_stations = TARGET_10_4_NUM_STATIONS;
 		ar->num_active_peers = TARGET_10_4_ACTIVE_PEERS;
 		ar->max_num_vdevs = TARGET_10_4_NUM_VDEVS;
@@ -1986,9 +2001,15 @@ static int ath10k_core_init_firmware_features(struct ath10k *ar)
 		break;
 	case ATH10K_FW_WMI_OP_VERSION_UNSET:
 	case ATH10K_FW_WMI_OP_VERSION_MAX:
+	default:
 		WARN_ON(1);
 		return -EINVAL;
 	}
+
+	if (ar->hw_params.num_peers)
+		ar->max_num_peers = ar->hw_params.num_peers;
+	else
+		ar->max_num_peers = max_num_peers;
 
 	/* Backwards compatibility for firmwares without
 	 * ATH10K_FW_IE_HTT_OP_VERSION.
