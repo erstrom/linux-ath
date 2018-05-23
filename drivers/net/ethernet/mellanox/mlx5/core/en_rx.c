@@ -37,6 +37,7 @@
 #include <linux/bpf_trace.h>
 #include <net/busy_poll.h>
 #include <net/ip6_checksum.h>
+#include <net/page_pool.h>
 #include "en.h"
 #include "en_tc.h"
 #include "eswitch.h"
@@ -221,7 +222,7 @@ static inline int mlx5e_page_alloc_mapped(struct mlx5e_rq *rq,
 	if (mlx5e_rx_cache_get(rq, dma_info))
 		return 0;
 
-	dma_info->page = dev_alloc_pages(rq->buff.page_order);
+	dma_info->page = page_pool_dev_alloc_pages(rq->page_pool);
 	if (unlikely(!dma_info->page))
 		return -ENOMEM;
 
@@ -236,15 +237,26 @@ static inline int mlx5e_page_alloc_mapped(struct mlx5e_rq *rq,
 	return 0;
 }
 
+static void mlx5e_page_dma_unmap(struct mlx5e_rq *rq,
+					struct mlx5e_dma_info *dma_info)
+{
+	dma_unmap_page(rq->pdev, dma_info->addr, RQ_PAGE_SIZE(rq),
+		       rq->buff.map_dir);
+}
+
 void mlx5e_page_release(struct mlx5e_rq *rq, struct mlx5e_dma_info *dma_info,
 			bool recycle)
 {
-	if (likely(recycle) && mlx5e_rx_cache_put(rq, dma_info))
-		return;
+	if (likely(recycle)) {
+		if (mlx5e_rx_cache_put(rq, dma_info))
+			return;
 
-	dma_unmap_page(rq->pdev, dma_info->addr, RQ_PAGE_SIZE(rq),
-		       rq->buff.map_dir);
-	put_page(dma_info->page);
+		mlx5e_page_dma_unmap(rq, dma_info);
+		page_pool_recycle_direct(rq->page_pool, dma_info->page);
+	} else {
+		mlx5e_page_dma_unmap(rq, dma_info);
+		put_page(dma_info->page);
+	}
 }
 
 static inline bool mlx5e_page_reuse(struct mlx5e_rq *rq,
@@ -438,7 +450,7 @@ bool mlx5e_post_rx_wqes(struct mlx5e_rq *rq)
 	struct mlx5_wq_ll *wq = &rq->wq;
 	int err;
 
-	if (unlikely(!MLX5E_TEST_BIT(rq->state, MLX5E_RQ_STATE_ENABLED)))
+	if (unlikely(!test_bit(MLX5E_RQ_STATE_ENABLED, &rq->state)))
 		return false;
 
 	if (mlx5_wq_ll_is_full(wq))
@@ -496,7 +508,7 @@ static void mlx5e_poll_ico_cq(struct mlx5e_cq *cq, struct mlx5e_rq *rq)
 	struct mlx5e_icosq *sq = container_of(cq, struct mlx5e_icosq, cq);
 	struct mlx5_cqe64 *cqe;
 
-	if (unlikely(!MLX5E_TEST_BIT(sq->state, MLX5E_SQ_STATE_ENABLED)))
+	if (unlikely(!test_bit(MLX5E_SQ_STATE_ENABLED, &sq->state)))
 		return;
 
 	cqe = mlx5_cqwq_get_cqe(&cq->wq);
@@ -513,7 +525,7 @@ bool mlx5e_post_rx_mpwqes(struct mlx5e_rq *rq)
 {
 	struct mlx5_wq_ll *wq = &rq->wq;
 
-	if (unlikely(!MLX5E_TEST_BIT(rq->state, MLX5E_RQ_STATE_ENABLED)))
+	if (unlikely(!test_bit(MLX5E_RQ_STATE_ENABLED, &rq->state)))
 		return false;
 
 	mlx5e_poll_ico_cq(&rq->channel->icosq.cq, rq);
@@ -669,11 +681,10 @@ static inline void mlx5e_build_rx_skb(struct mlx5_cqe64 *cqe,
 				      struct mlx5e_rq *rq,
 				      struct sk_buff *skb)
 {
+	u8 lro_num_seg = be32_to_cpu(cqe->srqn) >> 24;
 	struct net_device *netdev = rq->netdev;
-	int lro_num_seg;
 
 	skb->mac_len = ETH_HLEN;
-	lro_num_seg = be32_to_cpu(cqe->srqn) >> 24;
 	if (lro_num_seg > 1) {
 		mlx5e_lro_update_hdr(skb, cqe, cqe_bcnt);
 		skb_shinfo(skb)->gso_size = DIV_ROUND_UP(cqe_bcnt, lro_num_seg);
@@ -796,13 +807,14 @@ static inline bool mlx5e_xmit_xdp_frame(struct mlx5e_rq *rq,
 }
 
 /* returns true if packet was consumed by xdp */
-static inline int mlx5e_xdp_handle(struct mlx5e_rq *rq,
-				   struct mlx5e_dma_info *di,
-				   void *va, u16 *rx_headroom, u32 *len)
+static inline bool mlx5e_xdp_handle(struct mlx5e_rq *rq,
+				    struct mlx5e_dma_info *di,
+				    void *va, u16 *rx_headroom, u32 *len)
 {
-	const struct bpf_prog *prog = READ_ONCE(rq->xdp_prog);
+	struct bpf_prog *prog = READ_ONCE(rq->xdp_prog);
 	struct xdp_buff xdp;
 	u32 act;
+	int err;
 
 	if (!prog)
 		return false;
@@ -822,6 +834,15 @@ static inline int mlx5e_xdp_handle(struct mlx5e_rq *rq,
 	case XDP_TX:
 		if (unlikely(!mlx5e_xmit_xdp_frame(rq, di, &xdp)))
 			trace_xdp_exception(rq->netdev, prog, act);
+		return true;
+	case XDP_REDIRECT:
+		/* When XDP enabled then page-refcnt==1 here */
+		err = xdp_do_redirect(rq->netdev, &xdp, prog);
+		if (!err) {
+			__set_bit(MLX5E_RQ_FLAG_XDP_XMIT, rq->flags);
+			rq->xdpsq.db.redirect_flush = true;
+			mlx5e_page_dma_unmap(rq, di);
+		}
 		return true;
 	default:
 		bpf_warn_invalid_xdp_action(act);
@@ -868,6 +889,7 @@ struct sk_buff *skb_from_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe,
 
 	dma_sync_single_range_for_cpu(rq->pdev, di->addr, wi->offset,
 				      frag_size, DMA_FROM_DEVICE);
+	prefetchw(va); /* xdp_frame data area */
 	prefetch(data);
 	wi->offset += frag_size;
 
@@ -1110,7 +1132,7 @@ int mlx5e_poll_rx_cq(struct mlx5e_cq *cq, int budget)
 	struct mlx5_cqe64 *cqe;
 	int work_done = 0;
 
-	if (unlikely(!MLX5E_TEST_BIT(rq->state, MLX5E_RQ_STATE_ENABLED)))
+	if (unlikely(!test_bit(MLX5E_RQ_STATE_ENABLED, &rq->state)))
 		return 0;
 
 	if (cq->decmprs_left)
@@ -1140,6 +1162,11 @@ int mlx5e_poll_rx_cq(struct mlx5e_cq *cq, int budget)
 		xdpsq->db.doorbell = false;
 	}
 
+	if (xdpsq->db.redirect_flush) {
+		xdp_do_flush_map();
+		xdpsq->db.redirect_flush = false;
+	}
+
 	mlx5_cqwq_update_db_record(&cq->wq);
 
 	/* ensure cq space is freed before enabling more cqes */
@@ -1158,7 +1185,7 @@ bool mlx5e_poll_xdpsq_cq(struct mlx5e_cq *cq)
 
 	sq = container_of(cq, struct mlx5e_xdpsq, cq);
 
-	if (unlikely(!MLX5E_TEST_BIT(sq->state, MLX5E_SQ_STATE_ENABLED)))
+	if (unlikely(!test_bit(MLX5E_SQ_STATE_ENABLED, &sq->state)))
 		return false;
 
 	cqe = mlx5_cqwq_get_cqe(&cq->wq);

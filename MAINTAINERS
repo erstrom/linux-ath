@@ -2728,7 +2728,6 @@ F:	Documentation/networking/filter.txt
 F:	Documentation/bpf/
 F:	include/linux/bpf*
 F:	include/linux/filter.h
-F:	include/trace/events/bpf.h
 F:	include/trace/events/xdp.h
 F:	include/uapi/linux/bpf*
 F:	include/uapi/linux/filter.h
@@ -5317,7 +5316,6 @@ F:	include/linux/*mdio*.h
 F:	include/linux/of_net.h
 F:	include/linux/phy.h
 F:	include/linux/phy_fixed.h
-F:	include/linux/platform_data/mdio-gpio.h
 F:	include/linux/platform_data/mdio-bcm-unimac.h
 F:	include/trace/events/mdio.h
 F:	include/uapi/linux/mdio.h
@@ -8467,6 +8465,7 @@ M:	Vivien Didelot <vivien.didelot@savoirfairelinux.com>
 L:	netdev@vger.kernel.org
 S:	Maintained
 F:	drivers/net/dsa/mv88e6xxx/
+F:	linux/platform_data/mv88e6xxx.h
 F:	Documentation/devicetree/bindings/net/dsa/marvell.txt
 
 MARVELL ARMADA DRM SUPPORT
@@ -9020,25 +9019,16 @@ W:	http://www.mellanox.com
 Q:	http://patchwork.ozlabs.org/project/netdev/list/
 F:	drivers/net/ethernet/mellanox/mlx5/core/en_*
 
-MELLANOX ETHERNET INNOVA DRIVER
-M:	Ilan Tayari <ilant@mellanox.com>
-R:	Boris Pismenny <borisp@mellanox.com>
+MELLANOX ETHERNET INNOVA DRIVERS
+M:	Boris Pismenny <borisp@mellanox.com>
 L:	netdev@vger.kernel.org
 S:	Supported
 W:	http://www.mellanox.com
 Q:	http://patchwork.ozlabs.org/project/netdev/list/
+F:	drivers/net/ethernet/mellanox/mlx5/core/en_accel/*
+F:	drivers/net/ethernet/mellanox/mlx5/core/accel/*
 F:	drivers/net/ethernet/mellanox/mlx5/core/fpga/*
 F:	include/linux/mlx5/mlx5_ifc_fpga.h
-
-MELLANOX ETHERNET INNOVA IPSEC DRIVER
-M:	Ilan Tayari <ilant@mellanox.com>
-R:	Boris Pismenny <borisp@mellanox.com>
-L:	netdev@vger.kernel.org
-S:	Supported
-W:	http://www.mellanox.com
-Q:	http://patchwork.ozlabs.org/project/netdev/list/
-F:	drivers/net/ethernet/mellanox/mlx5/core/en_ipsec/*
-F:	drivers/net/ethernet/mellanox/mlx5/core/ipsec*
 
 MELLANOX ETHERNET SWITCH DRIVERS
 M:	Jiri Pirko <jiri@mellanox.com>
@@ -9288,6 +9278,12 @@ F:	drivers/scsi/smartpqi/Makefile
 F:	include/linux/cciss*.h
 F:	include/uapi/linux/cciss*.h
 F:	Documentation/scsi/smartpqi.txt
+
+MICROSEMI ETHERNET SWITCH DRIVER
+M:	Alexandre Belloni <alexandre.belloni@bootlin.com>
+L:	netdev@vger.kernel.org
+S:	Supported
+F:	drivers/net/ethernet/mscc/
 
 MICROSOFT SURFACE PRO 3 BUTTON DRIVER
 M:	Chen Yu <yu.c.chen@intel.com>
@@ -9832,7 +9828,7 @@ F:	net/netfilter/xt_CONNSECMARK.c
 F:	net/netfilter/xt_SECMARK.c
 
 NETWORKING [TLS]
-M:	Ilya Lesokhin <ilyal@mellanox.com>
+M:	Boris Pismenny <borisp@mellanox.com>
 M:	Aviad Yehezkel <aviadye@mellanox.com>
 M:	Dave Watson <davejwatson@fb.com>
 L:	netdev@vger.kernel.org
@@ -13401,6 +13397,7 @@ F:	drivers/media/usb/stk1160/
 STMMAC ETHERNET DRIVER
 M:	Giuseppe Cavallaro <peppe.cavallaro@st.com>
 M:	Alexandre Torgue <alexandre.torgue@st.com>
+M:	Jose Abreu <joabreu@synopsys.com>
 L:	netdev@vger.kernel.org
 W:	http://www.stlinux.com
 S:	Supported
@@ -14617,7 +14614,9 @@ M:	Woojung Huh <woojung.huh@microchip.com>
 M:	Microchip Linux Driver Support <UNGLinuxDriver@microchip.com>
 L:	netdev@vger.kernel.org
 S:	Maintained
+F:	Documentation/devicetree/bindings/net/microchip,lan78xx.txt
 F:	drivers/net/usb/lan78xx.*
+F:	include/dt-bindings/net/microchip-lan78xx.h
 
 USB MASS STORAGE DRIVER
 M:	Alan Stern <stern@rowland.harvard.edu>
@@ -15404,6 +15403,14 @@ W:	https://linuxtv.org
 T:	git git://linuxtv.org/media_tree.git
 S:	Maintained
 F:	drivers/media/tuners/tuner-xc2028.*
+
+XDP SOCKETS (AF_XDP)
+M:	Björn Töpel <bjorn.topel@intel.com>
+M:	Magnus Karlsson <magnus.karlsson@intel.com>
+L:	netdev@vger.kernel.org
+S:	Maintained
+F:	kernel/bpf/xskmap.c
+F:	net/xdp/
 
 XEN BLOCK SUBSYSTEM
 M:	Konrad Rzeszutek Wilk <konrad.wilk@oracle.com>
