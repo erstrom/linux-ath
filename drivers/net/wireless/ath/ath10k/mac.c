@@ -3246,6 +3246,9 @@ void ath10k_mac_tx_lock(struct ath10k *ar, int reason)
 	lockdep_assert_held(&ar->htt.tx_lock);
 
 	WARN_ON(reason >= ATH10K_TX_PAUSE_MAX);
+	if (ar->tx_paused & BIT(reason))
+		/* already locked due to this reason */
+		return;
 	ar->tx_paused |= BIT(reason);
 	ieee80211_stop_queues(ar->hw);
 }
