@@ -1192,6 +1192,63 @@ err:
 	return res;
 }
 
+#define P80211_OUI_LEN 3
+
+struct ieee80211_snap_hdr {
+	u8     dsap;   /* always 0xAA */
+	u8     ssap;   /* always 0xAA */
+	u8     ctrl;   /* always 0x03 */
+	u8     oui[P80211_OUI_LEN];    /* organizational universal id */
+	__be16 ether_type;
+} __attribute__ ((packed));
+
+static int __dot11_to_dot3(struct sk_buff *skb)
+{
+	struct ieee80211_hdr_3addr *dot11_hdr;
+	struct ieee80211_snap_hdr *snap_hdr;
+	struct ethhdr eth_hdr;
+	size_t dot11_hdr_len;
+	bool tods, fromds;
+	u8 *dst_addr, *src_addr;
+
+	dot11_hdr = (struct ieee80211_hdr_3addr *) skb->data;
+
+	/* Depending on the TODS and FROMDS flags, the addresses will have
+	 * different meaning
+	 */
+	tods = ieee80211_has_tods(dot11_hdr->frame_control);
+	fromds = ieee80211_has_fromds(dot11_hdr->frame_control);
+	if (!tods && !fromds) {
+		dst_addr = dot11_hdr->addr1;
+		src_addr = dot11_hdr->addr2;
+	} else if (!tods && fromds) {
+		dst_addr = dot11_hdr->addr1;
+		src_addr = dot11_hdr->addr3;
+	} else if (tods && !fromds) {
+		dst_addr = dot11_hdr->addr3;
+		src_addr = dot11_hdr->addr2;
+	} else { /* tods && fromds */
+		/* Unsupported for now */
+		return -1;
+	}
+
+	if (ieee80211_is_data_qos(dot11_hdr->frame_control))
+		dot11_hdr_len = sizeof(struct ieee80211_qos_hdr);
+	else
+		dot11_hdr_len = sizeof(struct ieee80211_hdr_3addr);
+
+	snap_hdr = (struct ieee80211_snap_hdr *)(skb->data + dot11_hdr_len);
+	memcpy(eth_hdr.h_dest, dst_addr, ETH_ALEN);
+	memcpy(eth_hdr.h_source, src_addr, ETH_ALEN);
+	eth_hdr.h_proto = snap_hdr->ether_type;
+
+	skb_pull(skb, dot11_hdr_len + sizeof(struct ieee80211_snap_hdr));
+	skb_push(skb, sizeof(eth_hdr));
+	memcpy(skb->data, &eth_hdr, sizeof(eth_hdr));
+
+	return dot11_hdr_len + sizeof(struct ieee80211_snap_hdr) - sizeof(eth_hdr);
+}
+
 #define HTT_TX_HL_NEEDED_HEADROOM \
 	(unsigned int)(sizeof(struct htt_cmd_hdr) + \
 	sizeof(struct htt_data_tx_desc) + \
@@ -1218,7 +1275,19 @@ static int ath10k_htt_tx_hl(struct ath10k_htt *htt, enum ath10k_hw_txrx_mode txm
 	switch (txmode) {
 	case ATH10K_HW_TXRX_RAW:
 	case ATH10K_HW_TXRX_NATIVE_WIFI:
-		flags0 |= HTT_DATA_TX_DESC_FLAGS0_MAC_HDR_PRESENT;
+		res = __dot11_to_dot3(msdu);
+		if (res >= 0) {
+			/* Header conversion was successful. Treat the frame as
+			 * a dot3 frame from now on.
+			 */
+			txmode = ATH10K_HW_TXRX_ETHERNET;
+			/* The dot3 frame is always shorter than the native wifi
+			 * frame. Adjust data_len accordingly
+			 */
+			data_len -= res;
+		} else {
+			flags0 |= HTT_DATA_TX_DESC_FLAGS0_MAC_HDR_PRESENT;
+		}
 		/* fall through */
 	case ATH10K_HW_TXRX_ETHERNET:
 		flags0 |= SM(txmode, HTT_DATA_TX_DESC_FLAGS0_PKT_TYPE);
