@@ -138,8 +138,7 @@ struct ath10k_htc_ready_extended {
 	struct ath10k_htc_ready base;
 	u8 htc_version; /* @enum ath10k_htc_version */
 	u8 max_msgs_per_htc_bundle;
-	u8 pad0;
-	u8 pad1;
+	__le16 alt_data_credit_size;
 } __packed;
 
 struct ath10k_htc_conn_svc {
@@ -346,6 +345,7 @@ struct ath10k_htc_ep {
 
 	u8 seq_no; /* for debugging */
 	int tx_credits;
+	int tx_credit_size;
 	bool tx_credit_flow_enabled;
 };
 
@@ -370,6 +370,7 @@ struct ath10k_htc {
 
 	int total_transmit_credits;
 	int target_credit_size;
+	int target_alt_data_credit_size;
 	u8 max_msgs_per_htc_bundle;
 };
 
