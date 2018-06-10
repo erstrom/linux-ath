@@ -3408,6 +3408,10 @@ ath10k_mac_tx_h_get_txmode(struct ath10k *ar,
 		      ar->running_fw->fw_file.fw_features))
 		return ATH10K_HW_TXRX_MGMT;
 
+	if (ieee80211_is_data_present(fc) &&
+	    test_bit(ATH10K_FLAG_ETHERNET_MODE, &ar->dev_flags))
+		return ATH10K_HW_TXRX_ETHERNET;
+
 	/* Workaround:
 	 *
 	 * Some wmi-tlv firmwares for qca6174 have broken Tx key selection for
