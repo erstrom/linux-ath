@@ -1890,7 +1890,7 @@ struct ath10k_htt_tx_ops {
 	int (*htt_alloc_frag_desc)(struct ath10k_htt *htt);
 	void (*htt_free_frag_desc)(struct ath10k_htt *htt);
 	int (*htt_tx)(struct ath10k_htt *htt, enum ath10k_hw_txrx_mode txmode,
-		      struct sk_buff *msdu);
+		      struct sk_buff *msdu, bool more_data);
 	int (*htt_alloc_txbuff)(struct ath10k_htt *htt);
 	void (*htt_free_txbuff)(struct ath10k_htt *htt);
 };
@@ -1927,9 +1927,10 @@ static inline void ath10k_htt_free_frag_desc(struct ath10k_htt *htt)
 
 static inline int ath10k_htt_tx(struct ath10k_htt *htt,
 				enum ath10k_hw_txrx_mode txmode,
-				struct sk_buff *msdu)
+				struct sk_buff *msdu,
+				bool more_data)
 {
-	return htt->tx_ops->htt_tx(htt, txmode, msdu);
+	return htt->tx_ops->htt_tx(htt, txmode, msdu, more_data);
 }
 
 static inline int ath10k_htt_alloc_txbuff(struct ath10k_htt *htt)
