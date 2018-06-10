@@ -1198,7 +1198,7 @@ err:
 	sizeof(struct ath10k_htc_hdr))
 
 static int ath10k_htt_tx_hl(struct ath10k_htt *htt, enum ath10k_hw_txrx_mode txmode,
-			    struct sk_buff *msdu)
+			    struct sk_buff *msdu, bool more_data)
 {
 	struct ath10k *ar = htt->ar;
 	int res, data_len;
@@ -1286,7 +1286,7 @@ static int ath10k_htt_tx_hl(struct ath10k_htt *htt, enum ath10k_hw_txrx_mode txm
 	 */
 	tx_desc->peerid = __cpu_to_le32(HTT_INVALID_PEERID);
 
-	res = ath10k_htc_send(&htt->ar->htc, htt->eid, msdu);
+	res = ath10k_htc_send_bundle(&htt->ar->htc, htt->eid, msdu, more_data);
 
 out:
 	return res;
@@ -1294,7 +1294,8 @@ out:
 
 static int ath10k_htt_tx_32(struct ath10k_htt *htt,
 			    enum ath10k_hw_txrx_mode txmode,
-			    struct sk_buff *msdu)
+			    struct sk_buff *msdu,
+			    bool more_data)
 {
 	struct ath10k *ar = htt->ar;
 	struct device *dev = ar->dev;
@@ -1496,7 +1497,8 @@ err:
 
 static int ath10k_htt_tx_64(struct ath10k_htt *htt,
 			    enum ath10k_hw_txrx_mode txmode,
-			    struct sk_buff *msdu)
+			    struct sk_buff *msdu,
+			    bool more_data)
 {
 	struct ath10k *ar = htt->ar;
 	struct device *dev = ar->dev;
