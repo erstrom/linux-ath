@@ -66,7 +66,7 @@ struct fl_flow_mask {
 	struct rhashtable_params filter_ht_params;
 	struct flow_dissector dissector;
 	struct list_head filters;
-	struct rcu_head rcu;
+	struct rcu_work rwork;
 	struct list_head list;
 };
 
@@ -87,6 +87,7 @@ struct cls_fl_filter {
 	struct list_head list;
 	u32 handle;
 	u32 flags;
+	unsigned int in_hw_count;
 	struct rcu_work rwork;
 	struct net_device *hw_dev;
 };
@@ -203,6 +204,20 @@ static int fl_init(struct tcf_proto *tp)
 	return rhashtable_init(&head->ht, &mask_ht_params);
 }
 
+static void fl_mask_free(struct fl_flow_mask *mask)
+{
+	rhashtable_destroy(&mask->ht);
+	kfree(mask);
+}
+
+static void fl_mask_free_work(struct work_struct *work)
+{
+	struct fl_flow_mask *mask = container_of(to_rcu_work(work),
+						 struct fl_flow_mask, rwork);
+
+	fl_mask_free(mask);
+}
+
 static bool fl_mask_put(struct cls_fl_head *head, struct fl_flow_mask *mask,
 			bool async)
 {
@@ -210,12 +225,11 @@ static bool fl_mask_put(struct cls_fl_head *head, struct fl_flow_mask *mask,
 		return false;
 
 	rhashtable_remove_fast(&head->ht, &mask->ht_node, mask_ht_params);
-	rhashtable_destroy(&mask->ht);
 	list_del_rcu(&mask->list);
 	if (async)
-		kfree_rcu(mask, rcu);
+		tcf_queue_work(&mask->rwork, fl_mask_free_work);
 	else
-		kfree(mask);
+		fl_mask_free(mask);
 
 	return true;
 }
@@ -276,6 +290,7 @@ static int fl_hw_replace_filter(struct tcf_proto *tp,
 		fl_hw_destroy_filter(tp, f, NULL);
 		return err;
 	} else if (err > 0) {
+		f->in_hw_count = err;
 		tcf_block_offload_inc(block, &f->flags);
 	}
 
@@ -1074,6 +1089,47 @@ skip:
 	}
 }
 
+static int fl_reoffload(struct tcf_proto *tp, bool add, tc_setup_cb_t *cb,
+			void *cb_priv, struct netlink_ext_ack *extack)
+{
+	struct cls_fl_head *head = rtnl_dereference(tp->root);
+	struct tc_cls_flower_offload cls_flower = {};
+	struct tcf_block *block = tp->chain->block;
+	struct fl_flow_mask *mask;
+	struct cls_fl_filter *f;
+	int err;
+
+	list_for_each_entry(mask, &head->masks, list) {
+		list_for_each_entry(f, &mask->filters, list) {
+			if (tc_skip_hw(f->flags))
+				continue;
+
+			tc_cls_common_offload_init(&cls_flower.common, tp,
+						   f->flags, extack);
+			cls_flower.command = add ?
+				TC_CLSFLOWER_REPLACE : TC_CLSFLOWER_DESTROY;
+			cls_flower.cookie = (unsigned long)f;
+			cls_flower.dissector = &mask->dissector;
+			cls_flower.mask = &f->mkey;
+			cls_flower.key = &f->key;
+			cls_flower.exts = &f->exts;
+			cls_flower.classid = f->res.classid;
+
+			err = cb(TC_SETUP_CLSFLOWER, &cls_flower, cb_priv);
+			if (err) {
+				if (add && tc_skip_sw(f->flags))
+					return err;
+				continue;
+			}
+
+			tc_cls_offload_cnt_update(block, &f->in_hw_count,
+						  &f->flags, add);
+		}
+	}
+
+	return 0;
+}
+
 static int fl_dump_key_val(struct sk_buff *skb,
 			   void *val, int val_type,
 			   void *mask, int mask_type, int len)
@@ -1425,6 +1481,7 @@ static struct tcf_proto_ops cls_fl_ops __read_mostly = {
 	.change		= fl_change,
 	.delete		= fl_delete,
 	.walk		= fl_walk,
+	.reoffload	= fl_reoffload,
 	.dump		= fl_dump,
 	.bind_class	= fl_bind_class,
 	.owner		= THIS_MODULE,
