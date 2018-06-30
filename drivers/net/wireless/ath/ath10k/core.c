@@ -705,9 +705,11 @@ static void ath10k_init_sdio(struct ath10k *ar)
 	param &= ~HI_ACS_FLAGS_SDIO_REDUCE_TX_COMPL_SET;
 
 	/* Alternate credit size of 1544 as used by SDIO firmware is
-	 * not big enough for mac80211 / native wifi frames. disable it
+	 * not big enough for mac80211 / native wifi frames.
+	 * We must make sure all native frames ar converted to ethernet frames.
 	 */
-	param &= ~HI_ACS_FLAGS_ALT_DATA_CREDIT_SIZE;
+	param |= HI_ACS_FLAGS_ALT_DATA_CREDIT_SIZE;
+	set_bit(ATH10K_FLAG_ETHERNET_MODE, &ar->dev_flags);
 
 	param |= HI_ACS_FLAGS_SDIO_SWAP_MAILBOX_SET;
 	ath10k_bmi_write32(ar, hi_acs_flags, param);
