@@ -25,6 +25,7 @@
 #include <linux/timer.h>
 
 struct ath10k;
+struct ath10k_hif_sg_item;
 
 /****************/
 /* HTC protocol */
@@ -372,6 +373,11 @@ struct ath10k_htc {
 	int target_credit_size;
 	int target_alt_data_credit_size;
 	u8 max_msgs_per_htc_bundle;
+
+	struct ath10k_hif_sg_item *sg_items_bundle;
+	size_t n_sg_items_bundle;
+	/* protects sg_items_bundle */
+	spinlock_t sg_items_bundle_lock;
 };
 
 int ath10k_htc_init(struct ath10k *ar);
@@ -382,6 +388,8 @@ int ath10k_htc_connect_service(struct ath10k_htc *htc,
 			       struct ath10k_htc_svc_conn_resp *conn_resp);
 int ath10k_htc_send(struct ath10k_htc *htc, enum ath10k_htc_ep_id eid,
 		    struct sk_buff *packet);
+int ath10k_htc_send_bundle(struct ath10k_htc *htc, enum ath10k_htc_ep_id eid,
+			   struct sk_buff *skb, bool more_data);
 struct sk_buff *ath10k_htc_alloc_skb(struct ath10k *ar, int size);
 void ath10k_htc_tx_completion_handler(struct ath10k *ar, struct sk_buff *skb);
 void ath10k_htc_rx_completion_handler(struct ath10k *ar, struct sk_buff *skb);
