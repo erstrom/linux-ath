@@ -3611,14 +3611,15 @@ ath10k_mac_tx_h_get_txpath(struct ath10k *ar,
 static int ath10k_mac_tx_submit(struct ath10k *ar,
 				enum ath10k_hw_txrx_mode txmode,
 				enum ath10k_mac_tx_path txpath,
-				struct sk_buff *skb)
+				struct sk_buff *skb,
+				bool more_data)
 {
 	struct ath10k_htt *htt = &ar->htt;
 	int ret = -EINVAL;
 
 	switch (txpath) {
 	case ATH10K_MAC_TX_HTT:
-		ret = ath10k_htt_tx(htt, txmode, skb);
+		ret = ath10k_htt_tx(htt, txmode, skb, more_data);
 		break;
 	case ATH10K_MAC_TX_HTT_MGMT:
 		ret = ath10k_htt_mgmt_tx(htt, skb);
@@ -3648,7 +3649,8 @@ static int ath10k_mac_tx(struct ath10k *ar,
 			 struct ieee80211_vif *vif,
 			 enum ath10k_hw_txrx_mode txmode,
 			 enum ath10k_mac_tx_path txpath,
-			 struct sk_buff *skb)
+			 struct sk_buff *skb,
+			 bool more_data)
 {
 	struct ieee80211_hw *hw = ar->hw;
 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
@@ -3687,7 +3689,7 @@ static int ath10k_mac_tx(struct ath10k *ar,
 		}
 	}
 
-	ret = ath10k_mac_tx_submit(ar, txmode, txpath, skb);
+	ret = ath10k_mac_tx_submit(ar, txmode, txpath, skb, more_data);
 	if (ret) {
 		ath10k_warn(ar, "failed to submit frame: %d\n", ret);
 		return ret;
@@ -3788,7 +3790,7 @@ void ath10k_offchan_tx_work(struct work_struct *work)
 		txmode = ath10k_mac_tx_h_get_txmode(ar, vif, sta, skb);
 		txpath = ath10k_mac_tx_h_get_txpath(ar, skb, txmode);
 
-		ret = ath10k_mac_tx(ar, vif, txmode, txpath, skb);
+		ret = ath10k_mac_tx(ar, vif, txmode, txpath, skb, false);
 		if (ret) {
 			ath10k_warn(ar, "failed to transmit offchannel frame: %d\n",
 				    ret);
@@ -3921,6 +3923,29 @@ struct ieee80211_txq *ath10k_mac_txq_lookup(struct ath10k *ar,
 		return NULL;
 }
 
+static bool ath10k_mac_tx_more_data(struct ath10k *ar,
+				    struct ieee80211_txq *txq,
+				    int max)
+{
+	unsigned long txq_frame_cnt;
+
+	if (max <= 0)
+		return false;
+
+	spin_lock_bh(&ar->htt.tx_lock);
+	if (ar->htt.num_pending_tx >= ar->htt.max_num_pending_tx - 1) {
+		spin_unlock_bh(&ar->htt.tx_lock);
+		return false;
+	}
+	spin_unlock_bh(&ar->htt.tx_lock);
+
+	ieee80211_txq_get_depth(txq, &txq_frame_cnt, NULL);
+	if (txq_frame_cnt <= 1)
+		return false;
+
+	return true;
+}
+
 static bool ath10k_mac_tx_can_push(struct ieee80211_hw *hw,
 				   struct ieee80211_txq *txq)
 {
@@ -3942,7 +3967,8 @@ static bool ath10k_mac_tx_can_push(struct ieee80211_hw *hw,
 }
 
 int ath10k_mac_tx_push_txq(struct ieee80211_hw *hw,
-			   struct ieee80211_txq *txq)
+			   struct ieee80211_txq *txq,
+			   bool more_data)
 {
 	struct ath10k *ar = hw->priv;
 	struct ath10k_htt *htt = &ar->htt;
@@ -3995,7 +4021,7 @@ int ath10k_mac_tx_push_txq(struct ieee80211_hw *hw,
 		spin_unlock_bh(&ar->htt.tx_lock);
 	}
 
-	ret = ath10k_mac_tx(ar, vif, txmode, txpath, skb);
+	ret = ath10k_mac_tx(ar, vif, txmode, txpath, skb, more_data);
 	if (unlikely(ret)) {
 		ath10k_warn(ar, "failed to push frame: %d\n", ret);
 
@@ -4023,6 +4049,7 @@ void ath10k_mac_tx_push_pending(struct ath10k *ar)
 	struct ath10k_txq *last;
 	int ret;
 	int max;
+	bool more_data;
 
 	if (ar->htt.num_pending_tx >= (ar->htt.max_num_pending_tx / 2))
 		return;
@@ -4040,7 +4067,8 @@ void ath10k_mac_tx_push_pending(struct ath10k *ar)
 		max = HTC_HOST_MAX_MSG_PER_TX_BUNDLE;
 		ret = 0;
 		while (ath10k_mac_tx_can_push(hw, txq) && max--) {
-			ret = ath10k_mac_tx_push_txq(hw, txq);
+			more_data = ath10k_mac_tx_more_data(ar, txq, max);
+			ret = ath10k_mac_tx_push_txq(hw, txq, more_data);
 			if (ret < 0)
 				break;
 		}
@@ -4277,7 +4305,7 @@ static void ath10k_mac_op_tx(struct ieee80211_hw *hw,
 		spin_unlock_bh(&ar->htt.tx_lock);
 	}
 
-	ret = ath10k_mac_tx(ar, vif, txmode, txpath, skb);
+	ret = ath10k_mac_tx(ar, vif, txmode, txpath, skb, false);
 	if (ret) {
 		ath10k_warn(ar, "failed to transmit frame: %d\n", ret);
 		if (is_htt) {
@@ -4298,6 +4326,7 @@ static void ath10k_mac_op_wake_tx_queue(struct ieee80211_hw *hw,
 	struct ath10k_txq *artxq = (void *)txq->drv_priv;
 	struct ieee80211_txq *f_txq;
 	struct ath10k_txq *f_artxq;
+	bool more_data;
 	int ret = 0;
 	int max = HTC_HOST_MAX_MSG_PER_TX_BUNDLE;
 
@@ -4310,7 +4339,8 @@ static void ath10k_mac_op_wake_tx_queue(struct ieee80211_hw *hw,
 	list_del_init(&f_artxq->list);
 
 	while (ath10k_mac_tx_can_push(hw, f_txq) && max--) {
-		ret = ath10k_mac_tx_push_txq(hw, f_txq);
+		more_data = ath10k_mac_tx_more_data(ar, f_txq, max);
+		ret = ath10k_mac_tx_push_txq(hw, f_txq, more_data);
 		if (ret < 0)
 			break;
 	}
