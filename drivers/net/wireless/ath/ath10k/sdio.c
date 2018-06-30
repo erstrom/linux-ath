@@ -35,7 +35,19 @@
 #include "trace.h"
 #include "sdio.h"
 
+#define ATH10K_SDIO_DMA_BUF_SIZE	(32 * 1024)
+
 /* inlined helper functions */
+
+/* Macro to check if DMA buffer is WORD-aligned and DMA-able.
+ * Most host controllers assume the buffer is DMA'able and will
+ * bug-check otherwise (i.e. buffers on the stack). virt_addr_valid
+ * check fails on stack memory.
+ */
+static inline bool buf_needs_bounce(const u8 *buf)
+{
+	return ((unsigned long)buf & 0x3) || !virt_addr_valid(buf);
+}
 
 static inline int ath10k_sdio_calc_txrx_padded_len(struct ath10k_sdio *ar_sdio,
 						   size_t len)
@@ -304,15 +316,29 @@ static int ath10k_sdio_read(struct ath10k *ar, u32 addr, void *buf, size_t len)
 {
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct sdio_func *func = ar_sdio->func;
+	bool bounced = false;
+	u8 *tbuf = NULL;
 	int ret;
+
+	if (buf_needs_bounce(buf)) {
+		if (!ar_sdio->dma_buffer)
+			return -ENOMEM;
+		mutex_lock(&ar_sdio->dma_buffer_mutex);
+		tbuf = ar_sdio->dma_buffer;
+		bounced = true;
+	} else {
+		tbuf = buf;
+	}
 
 	sdio_claim_host(func);
 
-	ret = sdio_memcpy_fromio(func, buf, addr, len);
+	ret = sdio_memcpy_fromio(func, tbuf, addr, len);
 	if (ret) {
 		ath10k_warn(ar, "failed to read from address 0x%x: %d\n",
 			    addr, ret);
 		goto out;
+	} else if (bounced) {
+		memcpy(buf, tbuf, len);
 	}
 
 	ath10k_dbg(ar, ATH10K_DBG_SDIO, "sdio read addr 0x%x buf 0x%p len %zu\n",
@@ -321,6 +347,8 @@ static int ath10k_sdio_read(struct ath10k *ar, u32 addr, void *buf, size_t len)
 
 out:
 	sdio_release_host(func);
+	if (bounced)
+		mutex_unlock(&ar_sdio->dma_buffer_mutex);
 
 	return ret;
 }
@@ -329,14 +357,27 @@ static int ath10k_sdio_write(struct ath10k *ar, u32 addr, const void *buf, size_
 {
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	struct sdio_func *func = ar_sdio->func;
+	bool bounced = false;
+	u8 *tbuf = NULL;
 	int ret;
+
+	if (buf_needs_bounce(buf)) {
+		if (!ar_sdio->dma_buffer)
+			return -ENOMEM;
+		mutex_lock(&ar_sdio->dma_buffer_mutex);
+		tbuf = ar_sdio->dma_buffer;
+		memcpy(tbuf, buf, len);
+		bounced = true;
+	} else {
+		tbuf = (u8 *)buf;
+	}
 
 	sdio_claim_host(func);
 
 	/* For some reason toio() doesn't have const for the buffer, need
 	 * an ugly hack to workaround that.
 	 */
-	ret = sdio_memcpy_toio(func, addr, (void *)buf, len);
+	ret = sdio_memcpy_toio(func, addr, (void *)tbuf, len);
 	if (ret) {
 		ath10k_warn(ar, "failed to write to address 0x%x: %d\n",
 			    addr, ret);
@@ -349,6 +390,8 @@ static int ath10k_sdio_write(struct ath10k *ar, u32 addr, const void *buf, size_
 
 out:
 	sdio_release_host(func);
+	if (bounced)
+		mutex_unlock(&ar_sdio->dma_buffer_mutex);
 
 	return ret;
 }
@@ -1982,6 +2025,12 @@ static int ath10k_sdio_probe(struct sdio_func *func,
 		goto err_core_destroy;
 	}
 
+	ar_sdio->dma_buffer = devm_kzalloc(ar->dev, ATH10K_SDIO_DMA_BUF_SIZE, GFP_KERNEL);
+	if (!ar_sdio->dma_buffer) {
+		ret = -ENOMEM;
+		goto err_core_destroy;
+	}
+
 	ar_sdio->func = func;
 	sdio_set_drvdata(func, ar_sdio);
 
@@ -1991,6 +2040,7 @@ static int ath10k_sdio_probe(struct sdio_func *func,
 	spin_lock_init(&ar_sdio->lock);
 	spin_lock_init(&ar_sdio->wr_async_lock);
 	mutex_init(&ar_sdio->irq_data.mtx);
+	mutex_init(&ar_sdio->dma_buffer_mutex);
 
 	INIT_LIST_HEAD(&ar_sdio->bus_req_freeq);
 	INIT_LIST_HEAD(&ar_sdio->wr_asyncq);
