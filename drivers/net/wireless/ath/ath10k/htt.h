@@ -1822,6 +1822,10 @@ struct ath10k_htt {
 	/* Protects access to pending_tx, num_pending_tx */
 	spinlock_t tx_lock;
 	int max_num_pending_tx;
+	/* The number of pending TX messages at which we lock TX */
+	int num_pending_tx_lock;
+	/* The number of pending TX messages at which we unlock TX */
+	int num_pending_tx_unlock;
 	int num_pending_tx;
 	int num_pending_mgmt_tx;
 	struct idr pending_tx;
