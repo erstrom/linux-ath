@@ -1340,12 +1340,15 @@ static void __ath10k_sdio_write_async(struct ath10k *ar,
 	int ret;
 
 	skb = req->skb;
-	ret = ath10k_sdio_write(ar, req->address, skb->data, skb->len);
+	if (skb)
+		ret = ath10k_sdio_write(ar, req->address, skb->data, skb->len);
+	else
+		ret = ath10k_sdio_write(ar, req->address, req->buf, req->buf_len);
 	if (ret)
 		ath10k_warn(ar, "failed to write skb to 0x%x asynchronously: %d",
 			    req->address, ret);
 
-	if (req->htc_msg) {
+	if (req->htc_msg && skb) {
 		ep = &ar->htc.endpoint[req->eid];
 		ath10k_htc_notify_tx_completion(ep, skb);
 	} else if (req->comp) {
@@ -1403,6 +1406,30 @@ static int ath10k_sdio_prep_async_req(struct ath10k *ar, u32 addr,
 	spin_unlock_bh(&ar_sdio->wr_async_lock);
 
 	return 0;
+}
+
+static struct ath10k_sdio_bus_request
+*ath10k_sdio_create_bundle_async_req(struct ath10k *ar,
+				     enum ath10k_htc_ep_id eid)
+{
+	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
+	struct ath10k_sdio_bus_request *bus_req;
+
+	lockdep_assert_held(&ar_sdio->wr_async_lock);
+
+	bus_req = ath10k_sdio_alloc_busreq(ar);
+	if (!bus_req) {
+		ath10k_warn(ar,
+			    "unable to allocate bus request for async request\n");
+		return ERR_PTR(-ENOMEM);
+	}
+
+	bus_req->eid = eid;
+	bus_req->htc_msg = true;
+
+	list_add_tail(&bus_req->list, &ar_sdio->wr_asyncq);
+
+	return bus_req;
 }
 
 /* IRQ handler */
@@ -1515,32 +1542,121 @@ static void ath10k_sdio_hif_power_down(struct ath10k *ar)
 	ar_sdio->is_disabled = true;
 }
 
+static size_t ath10k_sdio_hif_tx_bundle_padding(struct ath10k_htc_ep *ep,
+						size_t skb_len, u8 *buf)
+{
+	size_t padded_len;
+	struct ath10k_htc_hdr *htc_hdr;
+
+	padded_len = (skb_len / ep->tx_credit_size + 1) *
+		ep->tx_credit_size;
+	htc_hdr = (struct ath10k_htc_hdr *)buf;
+	htc_hdr->credit_pad = __cpu_to_le16(padded_len - skb_len);
+
+	return padded_len;
+}
+
+static bool ath10k_sdio_hif_is_htt_tx_msg(enum ath10k_htc_svc_id service_id,
+					  struct sk_buff *skb)
+{
+	struct htt_cmd_hdr *htt_cmd_hdr;
+	struct htt_data_tx_desc *tx_desc;
+	u8 txmode;
+
+	if (service_id != ATH10K_HTC_SVC_ID_HTT_DATA_MSG)
+		return false;
+
+	htt_cmd_hdr = (struct htt_cmd_hdr *)
+		(skb->data + sizeof(struct ath10k_htc_hdr));
+
+	if (htt_cmd_hdr->msg_type != HTT_H2T_MSG_TYPE_TX_FRM)
+		return false;
+
+	tx_desc = (struct htt_data_tx_desc *)
+		(skb->data + sizeof(struct ath10k_htc_hdr) + sizeof(struct htt_cmd_hdr));
+	txmode = MS(tx_desc->flags0, HTT_DATA_TX_DESC_FLAGS0_PKT_TYPE);
+
+	return (txmode != ATH10K_HW_TXRX_MGMT);
+}
+
+
 static int ath10k_sdio_hif_tx_sg(struct ath10k *ar, u8 pipe_id,
 				 struct ath10k_hif_sg_item *items, int n_items)
 {
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	enum ath10k_htc_ep_id eid;
+	enum ath10k_htc_svc_id service_id;
+	struct ath10k_htc_ep *ep;
 	struct sk_buff *skb;
 	int ret, i;
+	size_t padded_len, offset;
+	u32 address;
+	struct ath10k_sdio_bus_request *bus_req;
+	bool is_htt_tx_msg;
 
 	eid = pipe_id_to_eid(pipe_id);
+	ep = &ar->htc.endpoint[eid];
+	service_id = ar->htc.endpoint[eid].service_id;
 
-	for (i = 0; i < n_items; i++) {
-		size_t padded_len;
-		u32 address;
+	if (n_items == 1) {
+		skb = items[0].transfer_context;
+		is_htt_tx_msg = ath10k_sdio_hif_is_htt_tx_msg(service_id, skb);
+		if (is_htt_tx_msg) {
+			padded_len = ath10k_sdio_hif_tx_bundle_padding(ep,
+								       skb->len,
+								       skb->data);
+			skb->len = padded_len;
+			address = ar_sdio->mbox_addr[eid] +
+				  ar_sdio->mbox_size[eid] -
+				  skb->len;
 
-		skb = items[i].transfer_context;
+		}
 		padded_len = ath10k_sdio_calc_txrx_padded_len(ar_sdio,
 							      skb->len);
 		skb->len = padded_len;
 
-		/* Write TX data to the end of the mbox address space */
-		address = ar_sdio->mbox_addr[eid] + ar_sdio->mbox_size[eid] -
-			  skb->len;
+		if (!is_htt_tx_msg)
+			/* Write TX data to the end of the mbox address space */
+			address = ar_sdio->mbox_addr[eid] +
+				  ar_sdio->mbox_size[eid] -
+				  skb->len;
+
 		ret = ath10k_sdio_prep_async_req(ar, address, skb,
 						 NULL, true, eid);
 		if (ret)
 			return ret;
+
+	} else {
+		/* Bundle transfer case */
+		spin_lock_bh(&ar_sdio->wr_async_lock);
+		bus_req = ath10k_sdio_create_bundle_async_req(ar, eid);
+		if (IS_ERR(bus_req)) {
+			spin_unlock_bh(&ar_sdio->wr_async_lock);
+			return PTR_ERR(bus_req);
+		}
+
+		for (i = 0, offset = 0; i < n_items; i++) {
+			skb = items[i].transfer_context;
+			/* Each subframe in the bundle should be padded to the
+			 * HTC credit size.
+			 */
+			padded_len = ath10k_sdio_hif_tx_bundle_padding(ep,
+								       skb->len,
+								       bus_req->buf + offset);
+
+			memcpy(bus_req->buf + offset, skb->data, skb->len);
+			offset += padded_len;
+		}
+
+		/* Write TX data to the end of the mbox address space */
+		bus_req->address = ar_sdio->mbox_addr[eid] +
+			ar_sdio->mbox_size[eid] - offset;
+		/* The entire bundle should be padded to a multiple of the mbox
+		 * size.
+		 */
+		padded_len = ath10k_sdio_calc_txrx_padded_len(ar_sdio, offset);
+		bus_req->buf_len = padded_len;
+		spin_unlock_bh(&ar_sdio->wr_async_lock);
 	}
 
 	queue_work(ar_sdio->workqueue, &ar_sdio->wr_async_work);
