@@ -2206,9 +2206,9 @@ static int ath10k_core_init_firmware_features(struct ath10k *ar)
 		return -EINVAL;
 	}
 
-	ar->htt.num_pending_tx_lock =
-		ar->htt.max_num_pending_tx - HTC_HOST_MAX_MSG_PER_TX_BUNDLE - 1;
-	ar->htt.num_pending_tx_unlock = ar->htt.num_pending_tx_lock / 2;
+	ar->htt.num_pending_tx_lock = ar->htt.max_num_pending_tx +
+		HTC_HOST_MAX_MSG_PER_TX_BUNDLE;
+	ar->htt.num_pending_tx_unlock = ar->htt.max_num_pending_tx / 2;
 
 	if (ar->hw_params.num_peers)
 		ar->max_num_peers = ar->hw_params.num_peers;
