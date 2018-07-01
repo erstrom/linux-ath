@@ -749,6 +749,9 @@ enum ath10k_dev_flags {
 
 	/* Per Station statistics service */
 	ATH10K_FLAG_PEER_STATS,
+
+	/* Use ethernet (803.3) mode instead of native WiFi */
+	ATH10K_FLAG_ETHERNET_MODE,
 };
 
 enum ath10k_cal_mode {
