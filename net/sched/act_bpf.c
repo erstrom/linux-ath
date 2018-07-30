@@ -141,8 +141,8 @@ static int tcf_bpf_dump(struct sk_buff *skb, struct tc_action *act,
 	struct tcf_bpf *prog = to_bpf(act);
 	struct tc_act_bpf opt = {
 		.index   = prog->tcf_index,
-		.refcnt  = prog->tcf_refcnt - ref,
-		.bindcnt = prog->tcf_bindcnt - bind,
+		.refcnt  = refcount_read(&prog->tcf_refcnt) - ref,
+		.bindcnt = atomic_read(&prog->tcf_bindcnt) - bind,
 		.action  = prog->tcf_action,
 	};
 	struct tcf_t tm;
@@ -196,11 +196,9 @@ static int tcf_bpf_init_from_ops(struct nlattr **tb, struct tcf_bpf_cfg *cfg)
 	if (bpf_size != nla_len(tb[TCA_ACT_BPF_OPS]))
 		return -EINVAL;
 
-	bpf_ops = kzalloc(bpf_size, GFP_KERNEL);
+	bpf_ops = kmemdup(nla_data(tb[TCA_ACT_BPF_OPS]), bpf_size, GFP_KERNEL);
 	if (bpf_ops == NULL)
 		return -ENOMEM;
-
-	memcpy(bpf_ops, nla_data(tb[TCA_ACT_BPF_OPS]), bpf_size);
 
 	fprog_tmp.len = bpf_num_ops;
 	fprog_tmp.filter = bpf_ops;
@@ -276,7 +274,8 @@ static void tcf_bpf_prog_fill_cfg(const struct tcf_bpf *prog,
 
 static int tcf_bpf_init(struct net *net, struct nlattr *nla,
 			struct nlattr *est, struct tc_action **act,
-			int replace, int bind, struct netlink_ext_ack *extack)
+			int replace, int bind, bool rtnl_held,
+			struct netlink_ext_ack *extack)
 {
 	struct tc_action_net *tn = net_generic(net, bpf_net_id);
 	struct nlattr *tb[TCA_ACT_BPF_MAX + 1];
@@ -298,21 +297,27 @@ static int tcf_bpf_init(struct net *net, struct nlattr *nla,
 
 	parm = nla_data(tb[TCA_ACT_BPF_PARMS]);
 
-	if (!tcf_idr_check(tn, parm->index, act, bind)) {
+	ret = tcf_idr_check_alloc(tn, &parm->index, act, bind);
+	if (!ret) {
 		ret = tcf_idr_create(tn, parm->index, est, act,
 				     &act_bpf_ops, bind, true);
-		if (ret < 0)
+		if (ret < 0) {
+			tcf_idr_cleanup(tn, parm->index);
 			return ret;
+		}
 
 		res = ACT_P_CREATED;
-	} else {
+	} else if (ret > 0) {
 		/* Don't override defaults. */
 		if (bind)
 			return 0;
 
-		tcf_idr_release(*act, bind);
-		if (!replace)
+		if (!replace) {
+			tcf_idr_release(*act, bind);
 			return -EEXIST;
+		}
+	} else {
+		return ret;
 	}
 
 	is_bpf = tb[TCA_ACT_BPF_OPS_LEN] && tb[TCA_ACT_BPF_OPS];
@@ -355,8 +360,7 @@ static int tcf_bpf_init(struct net *net, struct nlattr *nla,
 
 	return res;
 out:
-	if (res == ACT_P_CREATED)
-		tcf_idr_release(*act, bind);
+	tcf_idr_release(*act, bind);
 
 	return ret;
 }
@@ -387,6 +391,13 @@ static int tcf_bpf_search(struct net *net, struct tc_action **a, u32 index,
 	return tcf_idr_search(tn, a, index);
 }
 
+static int tcf_bpf_delete(struct net *net, u32 index)
+{
+	struct tc_action_net *tn = net_generic(net, bpf_net_id);
+
+	return tcf_idr_delete_index(tn, index);
+}
+
 static struct tc_action_ops act_bpf_ops __read_mostly = {
 	.kind		=	"bpf",
 	.type		=	TCA_ACT_BPF,
@@ -397,6 +408,7 @@ static struct tc_action_ops act_bpf_ops __read_mostly = {
 	.init		=	tcf_bpf_init,
 	.walk		=	tcf_bpf_walker,
 	.lookup		=	tcf_bpf_search,
+	.delete		=	tcf_bpf_delete,
 	.size		=	sizeof(struct tcf_bpf),
 };
 

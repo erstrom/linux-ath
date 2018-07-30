@@ -1,7 +1,7 @@
 
 config RDS
 	tristate "The RDS Protocol"
-	depends on INET
+	depends on INET && IPV6
 	---help---
 	  The RDS (Reliable Datagram Sockets) protocol provides reliable,
 	  sequenced delivery of datagrams over Infiniband or TCP.
@@ -24,4 +24,3 @@ config RDS_DEBUG
         bool "RDS debugging messages"
 	depends on RDS
         default n
-
