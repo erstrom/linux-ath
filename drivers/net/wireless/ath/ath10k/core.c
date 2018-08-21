@@ -63,6 +63,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 	{
 		.id = QCA988X_HW_2_0_VERSION,
 		.dev_id = QCA988X_2_0_DEVICE_ID,
+		.bus = ATH10K_BUS_PCI,
 		.name = "qca988x hw2.0",
 		.patch_load_addr = QCA988X_HW_2_0_PATCH_LOAD_ADDR,
 		.uart_pin = 7,
@@ -128,6 +129,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 	{
 		.id = QCA9887_HW_1_0_VERSION,
 		.dev_id = QCA9887_1_0_DEVICE_ID,
+		.bus = ATH10K_BUS_PCI,
 		.name = "qca9887 hw1.0",
 		.patch_load_addr = QCA9887_HW_1_0_PATCH_LOAD_ADDR,
 		.uart_pin = 7,
@@ -161,6 +163,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 	{
 		.id = QCA6174_HW_2_1_VERSION,
 		.dev_id = QCA6164_2_1_DEVICE_ID,
+		.bus = ATH10K_BUS_PCI,
 		.name = "qca6164 hw2.1",
 		.patch_load_addr = QCA6174_HW_2_1_PATCH_LOAD_ADDR,
 		.uart_pin = 6,
@@ -193,6 +196,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 	{
 		.id = QCA6174_HW_2_1_VERSION,
 		.dev_id = QCA6174_2_1_DEVICE_ID,
+		.bus = ATH10K_BUS_PCI,
 		.name = "qca6174 hw2.1",
 		.patch_load_addr = QCA6174_HW_2_1_PATCH_LOAD_ADDR,
 		.uart_pin = 6,
@@ -225,6 +229,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 	{
 		.id = QCA6174_HW_3_0_VERSION,
 		.dev_id = QCA6174_2_1_DEVICE_ID,
+		.bus = ATH10K_BUS_PCI,
 		.name = "qca6174 hw3.0",
 		.patch_load_addr = QCA6174_HW_3_0_PATCH_LOAD_ADDR,
 		.uart_pin = 6,
@@ -257,6 +262,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 	{
 		.id = QCA6174_HW_3_2_VERSION,
 		.dev_id = QCA6174_2_1_DEVICE_ID,
+		.bus = ATH10K_BUS_PCI,
 		.name = "qca6174 hw3.2",
 		.patch_load_addr = QCA6174_HW_3_0_PATCH_LOAD_ADDR,
 		.uart_pin = 6,
@@ -292,6 +298,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 	{
 		.id = QCA99X0_HW_2_0_DEV_VERSION,
 		.dev_id = QCA99X0_2_0_DEVICE_ID,
+		.bus = ATH10K_BUS_PCI,
 		.name = "qca99x0 hw2.0",
 		.patch_load_addr = QCA99X0_HW_2_0_PATCH_LOAD_ADDR,
 		.uart_pin = 7,
@@ -330,6 +337,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 	{
 		.id = QCA9984_HW_1_0_DEV_VERSION,
 		.dev_id = QCA9984_1_0_DEVICE_ID,
+		.bus = ATH10K_BUS_PCI,
 		.name = "qca9984/qca9994 hw1.0",
 		.patch_load_addr = QCA9984_HW_1_0_PATCH_LOAD_ADDR,
 		.uart_pin = 7,
@@ -373,6 +381,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 	{
 		.id = QCA9888_HW_2_0_DEV_VERSION,
 		.dev_id = QCA9888_2_0_DEVICE_ID,
+		.bus = ATH10K_BUS_PCI,
 		.name = "qca9888 hw2.0",
 		.patch_load_addr = QCA9888_HW_2_0_PATCH_LOAD_ADDR,
 		.uart_pin = 7,
@@ -415,6 +424,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 	{
 		.id = QCA9377_HW_1_0_DEV_VERSION,
 		.dev_id = QCA9377_1_0_DEVICE_ID,
+		.bus = ATH10K_BUS_PCI,
 		.name = "qca9377 hw1.0",
 		.patch_load_addr = QCA9377_HW_1_0_PATCH_LOAD_ADDR,
 		.uart_pin = 6,
@@ -447,6 +457,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 	{
 		.id = QCA9377_HW_1_1_DEV_VERSION,
 		.dev_id = QCA9377_1_0_DEVICE_ID,
+		.bus = ATH10K_BUS_PCI,
 		.name = "qca9377 hw1.1",
 		.patch_load_addr = QCA9377_HW_1_0_PATCH_LOAD_ADDR,
 		.uart_pin = 6,
@@ -481,6 +492,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 	{
 		.id = QCA4019_HW_1_0_DEV_VERSION,
 		.dev_id = 0,
+		.bus = ATH10K_BUS_AHB,
 		.name = "qca4019 hw1.0",
 		.patch_load_addr = QCA4019_HW_1_0_PATCH_LOAD_ADDR,
 		.uart_pin = 7,
@@ -520,6 +532,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 	{
 		.id = WCN3990_HW_1_0_DEV_VERSION,
 		.dev_id = 0,
+		.bus = ATH10K_BUS_PCI,
 		.name = "wcn3990 hw1.0",
 		.continuous_frag_desc = true,
 		.tx_chain_mask = 0x7,
@@ -1882,7 +1895,8 @@ static int ath10k_init_hw_params(struct ath10k *ar)
 	for (i = 0; i < ARRAY_SIZE(ath10k_hw_params_list); i++) {
 		hw_params = &ath10k_hw_params_list[i];
 
-		if (hw_params->id == ar->target_version &&
+		if (hw_params->bus == ar->hif.bus &&
+		    hw_params->id == ar->target_version &&
 		    hw_params->dev_id == ar->dev_id)
 			break;
 	}
