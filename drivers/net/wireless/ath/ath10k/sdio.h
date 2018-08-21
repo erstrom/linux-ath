@@ -207,6 +207,8 @@ struct ath10k_sdio {
 	struct ath10k *ar;
 	struct ath10k_sdio_irq_data irq_data;
 
+	u8 *sdio_read_buf;
+
 	/* temporary buffer for BMI requests */
 	u8 *bmi_buf;
 
