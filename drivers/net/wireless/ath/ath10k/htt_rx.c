@@ -2440,7 +2440,7 @@ static void ath10k_htt_rx_tx_fetch_ind(struct ath10k *ar, struct sk_buff *skb)
 
 		while (num_msdus < max_num_msdus &&
 		       num_bytes < max_num_bytes) {
-			ret = ath10k_mac_tx_push_txq(hw, txq);
+			ret = ath10k_mac_tx_push_txq(hw, txq, false);
 			if (ret < 0)
 				break;
 
