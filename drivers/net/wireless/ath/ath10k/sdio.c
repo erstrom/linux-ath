@@ -35,6 +35,8 @@
 #include "trace.h"
 #include "sdio.h"
 
+#define ATH10K_SDIO_READ_BUF_SIZE	(32 * 1024)
+
 /* inlined helper functions */
 
 static inline int ath10k_sdio_calc_txrx_padded_len(struct ath10k_sdio *ar_sdio,
@@ -629,40 +631,67 @@ err:
 	return ret;
 }
 
-static int ath10k_sdio_mbox_rx_packet(struct ath10k *ar,
-				      struct ath10k_sdio_rx_data *pkt)
+static int ath10k_sdio_mbox_rx_fetch(struct ath10k *ar)
 {
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
+	struct ath10k_sdio_rx_data *pkt = &ar_sdio->rx_pkts[0];
 	struct sk_buff *skb = pkt->skb;
 	int ret;
 
-	ret = ath10k_sdio_readsb(ar, ar_sdio->mbox_info.htc_addr,
-				 skb->data, pkt->alloc_len);
-	pkt->status = ret;
-	if (!ret)
+	ret = ath10k_sdio_read(ar, ar_sdio->mbox_info.htc_addr,
+			       skb->data, pkt->alloc_len);
+	if (ret) {
+		ar_sdio->n_rx_pkts = 0;
+		ath10k_sdio_mbox_free_rx_pkt(pkt);
+	} else {
+		pkt->status = ret;
 		skb_put(skb, pkt->act_len);
+	}
 
 	return ret;
 }
 
-static int ath10k_sdio_mbox_rx_fetch(struct ath10k *ar)
+static int ath10k_sdio_mbox_rx_fetch_bundle(struct ath10k *ar)
 {
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
+	struct ath10k_sdio_rx_data *pkt;
 	int ret, i;
+	u32 pkt_offset = 0, pkt_bundle_len = 0;
+
+	for (i = 0; i < ar_sdio->n_rx_pkts; i++)
+		pkt_bundle_len += ar_sdio->rx_pkts[i].alloc_len;
+
+	if (pkt_bundle_len > ATH10K_SDIO_READ_BUF_SIZE) {
+		ret = -ENOMEM;
+		ath10k_err(ar, "bundle size (%d) exceeding limit %d\n",
+			   pkt_bundle_len, ATH10K_SDIO_READ_BUF_SIZE);
+		goto err;
+	}
+
+	ret = ath10k_sdio_readsb(ar, ar_sdio->mbox_info.htc_addr,
+				 ar_sdio->sdio_read_buf, pkt_bundle_len);
+	if (ret)
+		goto err;
 
 	for (i = 0; i < ar_sdio->n_rx_pkts; i++) {
-		ret = ath10k_sdio_mbox_rx_packet(ar,
-						 &ar_sdio->rx_pkts[i]);
-		if (ret)
-			goto err;
+		struct sk_buff *skb = ar_sdio->rx_pkts[i].skb;
+
+		pkt = &ar_sdio->rx_pkts[i];
+		memcpy(skb->data, ar_sdio->sdio_read_buf + pkt_offset,
+		       pkt->alloc_len);
+		pkt->status = 0;
+		skb_put(skb, pkt->act_len);
+		pkt_offset += pkt->alloc_len;
 	}
 
 	return 0;
 
 err:
 	/* Free all packets that was not successfully fetched. */
-	for (; i < ar_sdio->n_rx_pkts; i++)
+	for (i = 0; i < ar_sdio->n_rx_pkts; i++)
 		ath10k_sdio_mbox_free_rx_pkt(&ar_sdio->rx_pkts[i]);
+
+	ar_sdio->n_rx_pkts = 0;
 
 	return ret;
 }
@@ -706,7 +735,10 @@ static int ath10k_sdio_mbox_rxmsg_pending_handler(struct ath10k *ar,
 			 */
 			*done = false;
 
-		ret = ath10k_sdio_mbox_rx_fetch(ar);
+		if (ar_sdio->n_rx_pkts > 1)
+			ret = ath10k_sdio_mbox_rx_fetch_bundle(ar);
+		else
+			ret = ath10k_sdio_mbox_rx_fetch(ar);
 
 		/* Process fetched packets. This will potentially update
 		 * n_lookaheads depending on if the packets contain lookahead
@@ -1984,6 +2016,12 @@ static int ath10k_sdio_probe(struct sdio_func *func,
 
 	ar_sdio->bmi_buf = devm_kzalloc(ar->dev, BMI_MAX_CMDBUF_SIZE, GFP_KERNEL);
 	if (!ar_sdio->bmi_buf) {
+		ret = -ENOMEM;
+		goto err_core_destroy;
+	}
+
+	ar_sdio->sdio_read_buf = devm_kzalloc(ar->dev, ATH10K_SDIO_READ_BUF_SIZE, GFP_KERNEL);
+	if (!ar_sdio->sdio_read_buf) {
 		ret = -ENOMEM;
 		goto err_core_destroy;
 	}
