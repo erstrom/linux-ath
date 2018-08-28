@@ -1821,12 +1821,22 @@ struct ath10k_htt {
 
 	/* Protects access to pending_tx, num_pending_tx */
 	spinlock_t tx_lock;
+	/* The maximum number of pending TX msdus the target can handle */
 	int max_num_pending_tx;
-	/* The number of pending TX messages at which we lock TX */
+	/* The number of pending TX msdus at which we lock TX */
 	int num_pending_tx_lock;
-	/* The number of pending TX messages at which we unlock TX */
+	/* The number of pending TX msdus at which we unlock TX */
 	int num_pending_tx_unlock;
+	/* The number of pending TX msdus we have sent to target.
+	 * A pending msdu is an msdu that has not been "acked" by a TX_COMPL_IND
+	 * from target.
+	 */
 	int num_pending_tx;
+	/* The total number of pending TX msdus.
+	 * This value is the sum of the pending msdus sent to target and the
+	 * pending msdus in all TX queues.
+	 */
+	int num_pending_tx_total;
 	int num_pending_mgmt_tx;
 	struct idr pending_tx;
 	wait_queue_head_t empty_tx_wq;
