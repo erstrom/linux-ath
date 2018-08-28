@@ -1258,9 +1258,7 @@ static int ath10k_htt_tx_hl(struct ath10k_htt *htt, enum ath10k_hw_txrx_mode txm
 	}
 
 	if (ar->hif.bus == ATH10K_BUS_SDIO) {
-		spin_lock_bh(&htt->tx_lock);
 		res = ath10k_htt_tx_alloc_msdu_id(htt, msdu);
-		spin_unlock_bh(&htt->tx_lock);
 		if (res < 0) {
 			ath10k_err(ar, "msdu_id allocation failed %d\n", res);
 			goto out;
