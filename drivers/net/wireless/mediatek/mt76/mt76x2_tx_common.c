@@ -27,19 +27,19 @@ void mt76x2_tx(struct ieee80211_hw *hw, struct ieee80211_tx_control *control,
 	struct mt76_wcid *wcid = &dev->global_wcid;
 
 	if (control->sta) {
-		struct mt76x2_sta *msta;
+		struct mt76x02_sta *msta;
 
-		msta = (struct mt76x2_sta *)control->sta->drv_priv;
+		msta = (struct mt76x02_sta *)control->sta->drv_priv;
 		wcid = &msta->wcid;
 		/* sw encrypted frames */
-		if (!info->control.hw_key && wcid->hw_key_idx != -1)
+		if (!info->control.hw_key && wcid->hw_key_idx != 0xff)
 			control->sta = NULL;
 	}
 
 	if (vif && !control->sta) {
-		struct mt76x2_vif *mvif;
+		struct mt76x02_vif *mvif;
 
-		mvif = (struct mt76x2_vif *)vif->drv_priv;
+		mvif = (struct mt76x02_vif *)vif->drv_priv;
 		wcid = &mvif->group_wcid;
 	}
 

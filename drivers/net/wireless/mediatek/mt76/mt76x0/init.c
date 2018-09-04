@@ -109,6 +109,7 @@ static void mt76x0_reset_csr_bbp(struct mt76x0_dev *dev)
 
 static void mt76x0_init_usb_dma(struct mt76x0_dev *dev)
 {
+	struct mt76_usb *usb = &dev->mt76.usb;
 	u32 val;
 
 	val = mt76_rr(dev, MT_USB_DMA_CFG);
@@ -117,7 +118,7 @@ static void mt76x0_init_usb_dma(struct mt76x0_dev *dev)
 	       FIELD_PREP(MT_USB_DMA_CFG_RX_BULK_AGG_LMT, MT_USB_AGGR_SIZE_LIMIT) |
 	       MT_USB_DMA_CFG_RX_BULK_EN |
 	       MT_USB_DMA_CFG_TX_BULK_EN;
-	if (dev->in_max_packet == 512)
+	if (usb->in_max_packet == 512)
 		val |= MT_USB_DMA_CFG_RX_BULK_AGG_EN;
 	mt76_wr(dev, MT_USB_DMA_CFG, val);
 
@@ -127,9 +128,9 @@ static void mt76x0_init_usb_dma(struct mt76x0_dev *dev)
 
 	val = mt76_rr(dev, MT_USB_DMA_CFG);
 
-	val |= MT_USB_DMA_CFG_RX_DROP_OR_PADDING;
+	val |= MT_USB_DMA_CFG_RX_DROP_OR_PAD;
 	mt76_wr(dev, MT_USB_DMA_CFG, val);
-	val &= ~MT_USB_DMA_CFG_RX_DROP_OR_PADDING;
+	val &= ~MT_USB_DMA_CFG_RX_DROP_OR_PAD;
 	mt76_wr(dev, MT_USB_DMA_CFG, val);
 }
 
@@ -274,12 +275,12 @@ static int mt76x0_init_wcid_attr_mem(struct mt76x0_dev *dev)
 
 static void mt76x0_reset_counters(struct mt76x0_dev *dev)
 {
-	mt76_rr(dev, MT_RX_STA_CNT0);
-	mt76_rr(dev, MT_RX_STA_CNT1);
-	mt76_rr(dev, MT_RX_STA_CNT2);
-	mt76_rr(dev, MT_TX_STA_CNT0);
-	mt76_rr(dev, MT_TX_STA_CNT1);
-	mt76_rr(dev, MT_TX_STA_CNT2);
+	mt76_rr(dev, MT_RX_STAT_0);
+	mt76_rr(dev, MT_RX_STAT_1);
+	mt76_rr(dev, MT_RX_STAT_2);
+	mt76_rr(dev, MT_TX_STA_0);
+	mt76_rr(dev, MT_TX_STA_1);
+	mt76_rr(dev, MT_TX_STA_2);
 }
 
 int mt76x0_mac_start(struct mt76x0_dev *dev)
@@ -290,14 +291,14 @@ int mt76x0_mac_start(struct mt76x0_dev *dev)
 		       MT_WPDMA_GLO_CFG_RX_DMA_BUSY, 0, 200000))
 		return -ETIMEDOUT;
 
-	dev->rxfilter = MT_RX_FILTR_CFG_CRC_ERR |
+	dev->mt76.rxfilter = MT_RX_FILTR_CFG_CRC_ERR |
 		MT_RX_FILTR_CFG_PHY_ERR | MT_RX_FILTR_CFG_PROMISC |
 		MT_RX_FILTR_CFG_VER_ERR | MT_RX_FILTR_CFG_DUP |
 		MT_RX_FILTR_CFG_CFACK | MT_RX_FILTR_CFG_CFEND |
 		MT_RX_FILTR_CFG_ACK | MT_RX_FILTR_CFG_CTS |
 		MT_RX_FILTR_CFG_RTS | MT_RX_FILTR_CFG_PSPOLL |
 		MT_RX_FILTR_CFG_BA | MT_RX_FILTR_CFG_CTRL_RSV;
-	mt76_wr(dev, MT_RX_FILTR_CFG, dev->rxfilter);
+	mt76_wr(dev, MT_RX_FILTR_CFG, dev->mt76.rxfilter);
 
 	mt76_wr(dev, MT_MAC_SYS_CTRL,
 		   MT_MAC_SYS_CTRL_ENABLE_TX | MT_MAC_SYS_CTRL_ENABLE_RX);
@@ -384,9 +385,11 @@ int mt76x0_init_hardware(struct mt76x0_dev *dev)
 
 	mt76x0_chip_onoff(dev, true, true);
 
-	ret = mt76x0_wait_asic_ready(dev);
-	if (ret)
+	if (!mt76x02_wait_for_mac(&dev->mt76)) {
+		ret = -ETIMEDOUT;
 		goto err;
+	}
+
 	ret = mt76x0_mcu_init(dev);
 	if (ret)
 		goto err;
@@ -399,9 +402,10 @@ int mt76x0_init_hardware(struct mt76x0_dev *dev)
 	}
 
 	/* Wait for ASIC ready after FW load. */
-	ret = mt76x0_wait_asic_ready(dev);
-	if (ret)
+	if (!mt76x02_wait_for_mac(&dev->mt76)) {
+		ret = -ETIMEDOUT;
 		goto err;
+	}
 
 	mt76x0_reset_csr_bbp(dev);
 	mt76x0_init_usb_dma(dev);
@@ -461,7 +465,7 @@ int mt76x0_init_hardware(struct mt76x0_dev *dev)
 err_rx:
 	mt76x0_dma_cleanup(dev);
 err_mcu:
-	mt76x0_mcu_cmd_deinit(dev);
+	mt76u_mcu_deinit(&dev->mt76);
 err:
 	mt76x0_chip_onoff(dev, false, false);
 	return ret;
@@ -474,7 +478,7 @@ void mt76x0_cleanup(struct mt76x0_dev *dev)
 
 	mt76x0_stop_hardware(dev);
 	mt76x0_dma_cleanup(dev);
-	mt76x0_mcu_cmd_deinit(dev);
+	mt76u_mcu_deinit(&dev->mt76);
 }
 
 struct mt76x0_dev *mt76x0_alloc_device(struct device *pdev)
@@ -492,7 +496,7 @@ struct mt76x0_dev *mt76x0_alloc_device(struct device *pdev)
 	mutex_init(&dev->usb_ctrl_mtx);
 	mutex_init(&dev->reg_atomic_mutex);
 	mutex_init(&dev->hw_atomic_mutex);
-	mutex_init(&dev->mutex);
+	mutex_init(&dev->mt76.mutex);
 	spin_lock_init(&dev->tx_lock);
 	spin_lock_init(&dev->rx_lock);
 	spin_lock_init(&dev->mt76.lock);
@@ -685,8 +689,8 @@ int mt76x0_register_device(struct mt76x0_dev *dev)
 	hw->max_report_rates = 7;
 	hw->max_rate_tries = 1;
 
-	hw->sta_data_size = sizeof(struct mt76_sta);
-	hw->vif_data_size = sizeof(struct mt76_vif);
+	hw->sta_data_size = sizeof(struct mt76x02_sta);
+	hw->vif_data_size = sizeof(struct mt76x02_vif);
 
 	SET_IEEE80211_PERM_ADDR(hw, dev->macaddr);
 

@@ -16,30 +16,7 @@
  */
 
 #include "mt76x2.h"
-
-void mt76x2_txq_init(struct mt76x2_dev *dev, struct ieee80211_txq *txq)
-{
-	struct mt76_txq *mtxq;
-
-	if (!txq)
-		return;
-
-	mtxq = (struct mt76_txq *) txq->drv_priv;
-	if (txq->sta) {
-		struct mt76x2_sta *sta;
-
-		sta = (struct mt76x2_sta *) txq->sta->drv_priv;
-		mtxq->wcid = &sta->wcid;
-	} else {
-		struct mt76x2_vif *mvif;
-
-		mvif = (struct mt76x2_vif *) txq->vif->drv_priv;
-		mtxq->wcid = &mvif->group_wcid;
-	}
-
-	mt76_txq_init(&dev->mt76, txq);
-}
-EXPORT_SYMBOL_GPL(mt76x2_txq_init);
+#include "mt76x02_mac.h"
 
 int mt76x2_ampdu_action(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 			struct ieee80211_ampdu_params *params)
@@ -47,7 +24,7 @@ int mt76x2_ampdu_action(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	enum ieee80211_ampdu_mlme_action action = params->action;
 	struct ieee80211_sta *sta = params->sta;
 	struct mt76x2_dev *dev = hw->priv;
-	struct mt76x2_sta *msta = (struct mt76x2_sta *) sta->drv_priv;
+	struct mt76x02_sta *msta = (struct mt76x02_sta *) sta->drv_priv;
 	struct ieee80211_txq *txq = sta->txq[params->tid];
 	u16 tid = params->tid;
 	u16 *ssn = &params->ssn;
@@ -96,13 +73,13 @@ int mt76x2_sta_add(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 		   struct ieee80211_sta *sta)
 {
 	struct mt76x2_dev *dev = hw->priv;
-	struct mt76x2_sta *msta = (struct mt76x2_sta *) sta->drv_priv;
-	struct mt76x2_vif *mvif = (struct mt76x2_vif *) vif->drv_priv;
+	struct mt76x02_sta *msta = (struct mt76x02_sta *) sta->drv_priv;
+	struct mt76x02_vif *mvif = (struct mt76x02_vif *) vif->drv_priv;
 	int ret = 0;
 	int idx = 0;
 	int i;
 
-	mutex_lock(&dev->mutex);
+	mutex_lock(&dev->mt76.mutex);
 
 	idx = mt76_wcid_alloc(dev->wcid_mask, ARRAY_SIZE(dev->wcid));
 	if (idx < 0) {
@@ -114,10 +91,10 @@ int mt76x2_sta_add(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	msta->wcid.sta = 1;
 	msta->wcid.idx = idx;
 	msta->wcid.hw_key_idx = -1;
-	mt76x2_mac_wcid_setup(dev, idx, mvif->idx, sta->addr);
-	mt76x2_mac_wcid_set_drop(dev, idx, false);
+	mt76x02_mac_wcid_setup(&dev->mt76, idx, mvif->idx, sta->addr);
+	mt76x02_mac_wcid_set_drop(&dev->mt76, idx, false);
 	for (i = 0; i < ARRAY_SIZE(sta->txq); i++)
-		mt76x2_txq_init(dev, sta->txq[i]);
+		mt76x02_txq_init(&dev->mt76, sta->txq[i]);
 
 	if (vif->type == NL80211_IFTYPE_AP)
 		set_bit(MT_WCID_FLAG_CHECK_PS, &msta->wcid.flags);
@@ -127,7 +104,7 @@ int mt76x2_sta_add(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	rcu_assign_pointer(dev->wcid[idx], &msta->wcid);
 
 out:
-	mutex_unlock(&dev->mutex);
+	mutex_unlock(&dev->mt76.mutex);
 
 	return ret;
 }
@@ -137,18 +114,18 @@ int mt76x2_sta_remove(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 		      struct ieee80211_sta *sta)
 {
 	struct mt76x2_dev *dev = hw->priv;
-	struct mt76x2_sta *msta = (struct mt76x2_sta *) sta->drv_priv;
+	struct mt76x02_sta *msta = (struct mt76x02_sta *) sta->drv_priv;
 	int idx = msta->wcid.idx;
 	int i;
 
-	mutex_lock(&dev->mutex);
+	mutex_lock(&dev->mt76.mutex);
 	rcu_assign_pointer(dev->wcid[idx], NULL);
 	for (i = 0; i < ARRAY_SIZE(sta->txq); i++)
 		mt76_txq_remove(&dev->mt76, sta->txq[i]);
-	mt76x2_mac_wcid_set_drop(dev, idx, true);
+	mt76x02_mac_wcid_set_drop(&dev->mt76, idx, true);
 	mt76_wcid_free(dev->wcid_mask, idx);
-	mt76x2_mac_wcid_setup(dev, idx, 0, NULL);
-	mutex_unlock(&dev->mutex);
+	mt76x02_mac_wcid_setup(&dev->mt76, idx, 0, NULL);
+	mutex_unlock(&dev->mt76.mutex);
 
 	return 0;
 }
@@ -168,8 +145,8 @@ int mt76x2_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 		   struct ieee80211_key_conf *key)
 {
 	struct mt76x2_dev *dev = hw->priv;
-	struct mt76x2_vif *mvif = (struct mt76x2_vif *) vif->drv_priv;
-	struct mt76x2_sta *msta;
+	struct mt76x02_vif *mvif = (struct mt76x02_vif *) vif->drv_priv;
+	struct mt76x02_sta *msta;
 	struct mt76_wcid *wcid;
 	int idx = key->keyidx;
 	int ret;
@@ -196,7 +173,7 @@ int mt76x2_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 	    !(key->flags & IEEE80211_KEY_FLAG_PAIRWISE))
 		return -EOPNOTSUPP;
 
-	msta = sta ? (struct mt76x2_sta *) sta->drv_priv : NULL;
+	msta = sta ? (struct mt76x02_sta *) sta->drv_priv : NULL;
 	wcid = msta ? &msta->wcid : &mvif->group_wcid;
 
 	if (cmd == SET_KEY) {
@@ -218,15 +195,15 @@ int mt76x2_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 
 	if (!msta) {
 		if (key || wcid->hw_key_idx == idx) {
-			ret = mt76x2_mac_wcid_set_key(dev, wcid->idx, key);
+			ret = mt76x02_mac_wcid_set_key(&dev->mt76, wcid->idx, key);
 			if (ret)
 				return ret;
 		}
 
-		return mt76x2_mac_shared_key_setup(dev, mvif->idx, idx, key);
+		return mt76x02_mac_shared_key_setup(&dev->mt76, mvif->idx, idx, key);
 	}
 
-	return mt76x2_mac_wcid_set_key(dev, msta->wcid.idx, key);
+	return mt76x02_mac_wcid_set_key(&dev->mt76, msta->wcid.idx, key);
 }
 EXPORT_SYMBOL_GPL(mt76x2_set_key);
 
@@ -274,46 +251,12 @@ int mt76x2_conf_tx(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 }
 EXPORT_SYMBOL_GPL(mt76x2_conf_tx);
 
-void mt76x2_configure_filter(struct ieee80211_hw *hw,
-			     unsigned int changed_flags,
-			     unsigned int *total_flags, u64 multicast)
-{
-	struct mt76x2_dev *dev = hw->priv;
-	u32 flags = 0;
-
-#define MT76_FILTER(_flag, _hw) do { \
-		flags |= *total_flags & FIF_##_flag;			\
-		dev->rxfilter &= ~(_hw);				\
-		dev->rxfilter |= !(flags & FIF_##_flag) * (_hw);	\
-	} while (0)
-
-	mutex_lock(&dev->mutex);
-
-	dev->rxfilter &= ~MT_RX_FILTR_CFG_OTHER_BSS;
-
-	MT76_FILTER(FCSFAIL, MT_RX_FILTR_CFG_CRC_ERR);
-	MT76_FILTER(PLCPFAIL, MT_RX_FILTR_CFG_PHY_ERR);
-	MT76_FILTER(CONTROL, MT_RX_FILTR_CFG_ACK |
-			     MT_RX_FILTR_CFG_CTS |
-			     MT_RX_FILTR_CFG_CFEND |
-			     MT_RX_FILTR_CFG_CFACK |
-			     MT_RX_FILTR_CFG_BA |
-			     MT_RX_FILTR_CFG_CTRL_RSV);
-	MT76_FILTER(PSPOLL, MT_RX_FILTR_CFG_PSPOLL);
-
-	*total_flags = flags;
-	mt76_wr(dev, MT_RX_FILTR_CFG, dev->rxfilter);
-
-	mutex_unlock(&dev->mutex);
-}
-EXPORT_SYMBOL_GPL(mt76x2_configure_filter);
-
 void mt76x2_sta_rate_tbl_update(struct ieee80211_hw *hw,
 				struct ieee80211_vif *vif,
 				struct ieee80211_sta *sta)
 {
 	struct mt76x2_dev *dev = hw->priv;
-	struct mt76x2_sta *msta = (struct mt76x2_sta *) sta->drv_priv;
+	struct mt76x02_sta *msta = (struct mt76x02_sta *) sta->drv_priv;
 	struct ieee80211_sta_rates *rates = rcu_dereference(sta->rates);
 	struct ieee80211_tx_rate rate = {};
 

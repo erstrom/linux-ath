@@ -283,6 +283,7 @@ mt76_alloc_device(unsigned int size, const struct ieee80211_ops *ops)
 	spin_lock_init(&dev->rx_lock);
 	spin_lock_init(&dev->lock);
 	spin_lock_init(&dev->cc_lock);
+	mutex_init(&dev->mutex);
 	init_waitqueue_head(&dev->tx_wait);
 
 	return dev;
@@ -304,6 +305,8 @@ int mt76_register_device(struct mt76_dev *dev, bool vht,
 	SET_IEEE80211_PERM_ADDR(hw, dev->macaddr);
 
 	wiphy->features |= NL80211_FEATURE_ACTIVE_MONITOR;
+
+	wiphy_ext_feature_set(wiphy, NL80211_EXT_FEATURE_CQM_RSSI_LIST);
 
 	wiphy->available_antennas_tx = dev->antenna_mask;
 	wiphy->available_antennas_rx = dev->antenna_mask;

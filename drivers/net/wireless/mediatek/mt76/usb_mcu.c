@@ -49,12 +49,44 @@ void mt76u_mcu_complete_urb(struct urb *urb)
 }
 EXPORT_SYMBOL_GPL(mt76u_mcu_complete_urb);
 
+static void
+mt76u_multiple_mcu_reads(struct mt76_dev *dev, u8 *data,
+			 int len)
+{
+	struct mt76_usb *usb = &dev->usb;
+	u32 reg, val;
+	int i;
+
+	if (usb->mcu.burst) {
+		WARN_ON_ONCE(len / 4 != usb->mcu.rp_len);
+
+		reg = usb->mcu.rp[0].reg - usb->mcu.base;
+		for (i = 0; i < usb->mcu.rp_len; i++) {
+			val = get_unaligned_le32(data + 4 * i);
+			usb->mcu.rp[i].reg = reg++;
+			usb->mcu.rp[i].value = val;
+		}
+	} else {
+		WARN_ON_ONCE(len / 8 != usb->mcu.rp_len);
+
+		for (i = 0; i < usb->mcu.rp_len; i++) {
+			reg = get_unaligned_le32(data + 8 * i) -
+			      usb->mcu.base;
+			val = get_unaligned_le32(data + 8 * i + 4);
+
+			WARN_ON_ONCE(usb->mcu.rp[i].reg != reg);
+			usb->mcu.rp[i].value = val;
+		}
+	}
+}
+
 static int mt76u_mcu_wait_resp(struct mt76_dev *dev, u8 seq)
 {
 	struct mt76_usb *usb = &dev->usb;
 	struct mt76u_buf *buf = &usb->mcu.res;
 	int i, ret;
 	u32 rxfce;
+	u8 *data;
 
 	for (i = 0; i < 5; i++) {
 		if (!wait_for_completion_timeout(&usb->mcu.cmpl,
@@ -64,7 +96,12 @@ static int mt76u_mcu_wait_resp(struct mt76_dev *dev, u8 seq)
 		if (buf->urb->status)
 			return -EIO;
 
-		rxfce = get_unaligned_le32(sg_virt(&buf->urb->sg[0]));
+		data = sg_virt(&buf->urb->sg[0]);
+		if (usb->mcu.rp)
+			mt76u_multiple_mcu_reads(dev, data + 4,
+						 buf->urb->actual_length - 8);
+
+		rxfce = get_unaligned_le32(data);
 		ret = mt76u_submit_buf(dev, USB_DIR_IN,
 				       MT_EP_IN_CMD_RESP,
 				       buf, GFP_KERNEL,
@@ -73,7 +110,8 @@ static int mt76u_mcu_wait_resp(struct mt76_dev *dev, u8 seq)
 		if (ret)
 			return ret;
 
-		if (seq == FIELD_GET(MT_RX_FCE_INFO_CMD_SEQ, rxfce))
+		if (seq == FIELD_GET(MT_RX_FCE_INFO_CMD_SEQ, rxfce) &&
+		    FIELD_GET(MT_RX_FCE_INFO_EVT_TYPE, rxfce) == EVT_CMD_DONE)
 			return 0;
 
 		dev_err(dev->dev, "error: MCU resp evt:%lx seq:%hhx-%lx\n",
@@ -85,8 +123,8 @@ static int mt76u_mcu_wait_resp(struct mt76_dev *dev, u8 seq)
 	return -ETIMEDOUT;
 }
 
-int mt76u_mcu_send_msg(struct mt76_dev *dev, struct sk_buff *skb,
-		       int cmd, bool wait_resp)
+int __mt76u_mcu_send_msg(struct mt76_dev *dev, struct sk_buff *skb,
+			 int cmd, bool wait_resp)
 {
 	struct usb_interface *intf = to_usb_interface(dev->dev);
 	struct usb_device *udev = interface_to_usbdev(intf);
@@ -98,8 +136,6 @@ int mt76u_mcu_send_msg(struct mt76_dev *dev, struct sk_buff *skb,
 
 	if (test_bit(MT76_REMOVED, &dev->state))
 		return 0;
-
-	mutex_lock(&usb->mcu.mutex);
 
 	pipe = usb_sndbulkpipe(udev, usb->out_ep[MT_EP_OUT_INBAND_CMD]);
 	if (wait_resp) {
@@ -113,21 +149,32 @@ int mt76u_mcu_send_msg(struct mt76_dev *dev, struct sk_buff *skb,
 	       MT_MCU_MSG_TYPE_CMD;
 	ret = mt76u_skb_dma_info(skb, CPU_TX_PORT, info);
 	if (ret)
-		goto out;
+		return ret;
 
 	ret = usb_bulk_msg(udev, pipe, skb->data, skb->len, &sent, 500);
 	if (ret)
-		goto out;
+		return ret;
 
 	if (wait_resp)
 		ret = mt76u_mcu_wait_resp(dev, seq);
 
-out:
-	mutex_unlock(&usb->mcu.mutex);
-
 	consume_skb(skb);
 
 	return ret;
+}
+EXPORT_SYMBOL_GPL(__mt76u_mcu_send_msg);
+
+int mt76u_mcu_send_msg(struct mt76_dev *dev, struct sk_buff *skb,
+		       int cmd, bool wait_resp)
+{
+	struct mt76_usb *usb = &dev->usb;
+	int err;
+
+	mutex_lock(&usb->mcu.mutex);
+	err = __mt76u_mcu_send_msg(dev, skb, cmd, wait_resp);
+	mutex_unlock(&usb->mcu.mutex);
+
+	return err;
 }
 EXPORT_SYMBOL_GPL(mt76u_mcu_send_msg);
 
@@ -240,3 +287,12 @@ int mt76u_mcu_init_rx(struct mt76_dev *dev)
 	return err;
 }
 EXPORT_SYMBOL_GPL(mt76u_mcu_init_rx);
+
+void mt76u_mcu_deinit(struct mt76_dev *dev)
+{
+	struct mt76_usb *usb = &dev->usb;
+
+	usb_kill_urb(usb->mcu.res.urb);
+	mt76u_buf_free(&usb->mcu.res);
+}
+EXPORT_SYMBOL_GPL(mt76u_mcu_deinit);

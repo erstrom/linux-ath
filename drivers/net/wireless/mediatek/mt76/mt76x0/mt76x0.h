@@ -26,7 +26,8 @@
 #include <linux/debugfs.h>
 
 #include "../mt76.h"
-#include "regs.h"
+#include "../mt76x02_regs.h"
+#include "../mt76x02_mac.h"
 
 #define MT_CALIBRATE_INTERVAL		(4 * HZ)
 
@@ -46,20 +47,6 @@ struct mt76x0_dma_buf {
 	void *buf;
 	dma_addr_t dma;
 	size_t len;
-};
-
-struct mt76x0_mcu {
-	struct mutex mutex;
-
-	u8 msg_seq;
-
-	struct mt76x0_dma_buf resp;
-	struct completion resp_cmpl;
-
-	struct mt76_reg_pair *reg_pairs;
-	unsigned int reg_pairs_len;
-	u32 reg_base;
-	bool burst_read;
 };
 
 struct mac_stats {
@@ -146,8 +133,6 @@ enum mt_bw {
 struct mt76x0_dev {
 	struct mt76_dev mt76; /* must be first */
 
-	struct mutex mutex;
-
 	struct mutex usb_ctrl_mtx;
 	u8 data[32];
 
@@ -161,8 +146,6 @@ struct mt76x0_dev {
 
 	unsigned long wcid_mask[DIV_ROUND_UP(N_WCIDS, BITS_PER_LONG)];
 	unsigned long vif_mask;
-
-	struct mt76x0_mcu mcu;
 
 	struct delayed_work cal_work;
 	struct delayed_work mac_work;
@@ -183,7 +166,6 @@ struct mt76x0_dev {
 	struct mutex reg_atomic_mutex;
 	struct mutex hw_atomic_mutex;
 
-	u32 rxfilter;
 	u32 debugfs_reg;
 
 	/* TX */
@@ -221,36 +203,6 @@ struct mt76x0_wcid {
 	u8 tx_rate_nss;
 };
 
-struct mt76_vif {
-	u8 idx;
-
-	struct mt76_wcid group_wcid;
-};
-
-struct mt76_tx_status {
-	u8 valid:1;
-	u8 success:1;
-	u8 aggr:1;
-	u8 ack_req:1;
-	u8 is_probe:1;
-	u8 wcid;
-	u8 pktid;
-	u8 retry;
-	u16 rate;
-} __packed __aligned(2);
-
-struct mt76_sta {
-	struct mt76_wcid wcid;
-	struct mt76_tx_status status;
-	int n_frames;
-	u16 agg_ssn[IEEE80211_NUM_TIDS];
-};
-
-struct mt76_reg_pair {
-	u32 reg;
-	u32 value;
-};
-
 struct mt76x0_rxwi;
 
 extern const struct ieee80211_ops mt76x0_ops;
@@ -262,8 +214,6 @@ static inline bool is_mt7610e(struct mt76x0_dev *dev)
 }
 
 void mt76x0_init_debugfs(struct mt76x0_dev *dev);
-
-int mt76x0_wait_asic_ready(struct mt76x0_dev *dev);
 
 /* Compatibility with mt76 */
 #define mt76_rmw_field(_dev, _reg, _field, _val)	\
@@ -305,8 +255,6 @@ void mt76x0_mac_set_protection(struct mt76x0_dev *dev, bool legacy_prot,
 				int ht_mode);
 void mt76x0_mac_set_short_preamble(struct mt76x0_dev *dev, bool short_preamb);
 void mt76x0_mac_config_tsf(struct mt76x0_dev *dev, bool enable, int interval);
-void
-mt76x0_mac_wcid_setup(struct mt76x0_dev *dev, u8 idx, u8 vif_idx, u8 *mac);
 void mt76x0_mac_set_ampdu_factor(struct mt76x0_dev *dev);
 
 /* TX */

@@ -46,213 +46,10 @@ static struct usb_device_id mt76x0_device_table[] = {
 	{ 0, }
 };
 
-bool mt76x0_usb_alloc_buf(struct mt76x0_dev *dev, size_t len,
-			   struct mt76x0_dma_buf *buf)
-{
-	struct usb_device *usb_dev = mt76x0_to_usb_dev(dev);
-
-	buf->len = len;
-	buf->urb = usb_alloc_urb(0, GFP_KERNEL);
-	buf->buf = usb_alloc_coherent(usb_dev, buf->len, GFP_KERNEL, &buf->dma);
-
-	return !buf->urb || !buf->buf;
-}
-
-void mt76x0_usb_free_buf(struct mt76x0_dev *dev, struct mt76x0_dma_buf *buf)
-{
-	struct usb_device *usb_dev = mt76x0_to_usb_dev(dev);
-
-	usb_free_coherent(usb_dev, buf->len, buf->buf, buf->dma);
-	usb_free_urb(buf->urb);
-}
-
-int mt76x0_usb_submit_buf(struct mt76x0_dev *dev, int dir, int ep_idx,
-			   struct mt76x0_dma_buf *buf, gfp_t gfp,
-			   usb_complete_t complete_fn, void *context)
-{
-	struct usb_device *usb_dev = mt76x0_to_usb_dev(dev);
-	unsigned pipe;
-	int ret;
-
-	if (dir == USB_DIR_IN)
-		pipe = usb_rcvbulkpipe(usb_dev, dev->in_ep[ep_idx]);
-	else
-		pipe = usb_sndbulkpipe(usb_dev, dev->out_ep[ep_idx]);
-
-	usb_fill_bulk_urb(buf->urb, usb_dev, pipe, buf->buf, buf->len,
-			  complete_fn, context);
-	buf->urb->transfer_dma = buf->dma;
-	buf->urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
-
-	trace_mt76x0_submit_urb(&dev->mt76, buf->urb);
-	ret = usb_submit_urb(buf->urb, gfp);
-	if (ret)
-		dev_err(dev->mt76.dev, "Error: submit URB dir:%d ep:%d failed:%d\n",
-			dir, ep_idx, ret);
-	return ret;
-}
-
-void mt76x0_complete_urb(struct urb *urb)
-{
-	struct completion *cmpl = urb->context;
-
-	complete(cmpl);
-}
-
-int mt76x0_vendor_request(struct mt76x0_dev *dev, const u8 req,
-			   const u8 direction, const u16 val, const u16 offset,
-			   void *buf, const size_t buflen)
-{
-	int i, ret;
-	struct usb_device *usb_dev = mt76x0_to_usb_dev(dev);
-	const u8 req_type = direction | USB_TYPE_VENDOR | USB_RECIP_DEVICE;
-	const unsigned int pipe = (direction == USB_DIR_IN) ?
-		usb_rcvctrlpipe(usb_dev, 0) : usb_sndctrlpipe(usb_dev, 0);
-
-	for (i = 0; i < MT_VEND_REQ_MAX_RETRY; i++) {
-		ret = usb_control_msg(usb_dev, pipe, req, req_type,
-				      val, offset, buf, buflen,
-				      MT_VEND_REQ_TOUT_MS);
-		trace_mt76x0_vend_req(&dev->mt76, pipe, req, req_type, val, offset,
-				  buf, buflen, ret);
-
-		if (ret == -ENODEV)
-			set_bit(MT76_REMOVED, &dev->mt76.state);
-		if (ret >= 0 || ret == -ENODEV)
-			return ret;
-
-		msleep(5);
-	}
-
-	dev_err(dev->mt76.dev, "Vendor request req:%02x off:%04x failed:%d\n",
-		req, offset, ret);
-
-	return ret;
-}
-
-void mt76x0_vendor_reset(struct mt76x0_dev *dev)
-{
-	mt76x0_vendor_request(dev, MT_VEND_DEV_MODE, USB_DIR_OUT,
-			      MT_VEND_DEV_MODE_RESET, 0, NULL, 0);
-}
-
-static u32 mt76x0_rr(struct mt76_dev *dev, u32 offset)
-{
-	struct mt76x0_dev *mdev = (struct mt76x0_dev *) dev;
-	int ret;
-	u32 val = ~0;
-
-	WARN_ONCE(offset > USHRT_MAX, "read high off:%08x", offset);
-
-	mutex_lock(&mdev->usb_ctrl_mtx);
-
-	ret = mt76x0_vendor_request((struct mt76x0_dev *)dev, MT_VEND_MULTI_READ, USB_DIR_IN,
-				    0, offset, mdev->data, MT_VEND_BUF);
-	if (ret == MT_VEND_BUF)
-		val = get_unaligned_le32(mdev->data);
-	else if (ret > 0)
-		dev_err(dev->dev, "Error: wrong size read:%d off:%08x\n",
-			ret, offset);
-
-	mutex_unlock(&mdev->usb_ctrl_mtx);
-
-	trace_mt76x0_reg_read(dev, offset, val);
-	return val;
-}
-
-int mt76x0_vendor_single_wr(struct mt76x0_dev *dev, const u8 req,
-			     const u16 offset, const u32 val)
-{
-	struct mt76x0_dev *mdev = dev;
-	int ret;
-
-	mutex_lock(&mdev->usb_ctrl_mtx);
-
-	ret = mt76x0_vendor_request(dev, req, USB_DIR_OUT,
-				    val & 0xffff, offset, NULL, 0);
-	if (!ret)
-		ret = mt76x0_vendor_request(dev, req, USB_DIR_OUT,
-					    val >> 16, offset + 2, NULL, 0);
-
-	mutex_unlock(&mdev->usb_ctrl_mtx);
-
-	return ret;
-}
-
-static void mt76x0_wr(struct mt76_dev *dev, u32 offset, u32 val)
-{
-	struct mt76x0_dev *mdev = (struct mt76x0_dev *) dev;
-	int ret;
-
-	WARN_ONCE(offset > USHRT_MAX, "write high off:%08x", offset);
-
-	mutex_lock(&mdev->usb_ctrl_mtx);
-
-	put_unaligned_le32(val, mdev->data);
-	ret = mt76x0_vendor_request(mdev, MT_VEND_MULTI_WRITE, USB_DIR_OUT,
-				    0, offset, mdev->data, MT_VEND_BUF);
-	trace_mt76x0_reg_write(dev, offset, val);
-
-	mutex_unlock(&mdev->usb_ctrl_mtx);
-}
-
-static u32 mt76x0_rmw(struct mt76_dev *dev, u32 offset, u32 mask, u32 val)
-{
-	val |= mt76x0_rr(dev, offset) & ~mask;
-	mt76x0_wr(dev, offset, val);
-	return val;
-}
-
-static void mt76x0_wr_copy(struct mt76_dev *dev, u32 offset,
-			   const void *data, int len)
-{
-	WARN_ONCE(offset & 3, "unaligned write copy off:%08x", offset);
-	WARN_ONCE(len & 3, "short write copy off:%08x", offset);
-
-	mt76x0_burst_write_regs((struct mt76x0_dev *) dev, offset, data, len / 4);
-}
-
 void mt76x0_addr_wr(struct mt76x0_dev *dev, const u32 offset, const u8 *addr)
 {
 	mt76_wr(dev, offset, get_unaligned_le32(addr));
 	mt76_wr(dev, offset + 4, addr[4] | addr[5] << 8);
-}
-
-static int mt76x0_assign_pipes(struct usb_interface *usb_intf,
-				struct mt76x0_dev *dev)
-{
-	struct usb_endpoint_descriptor *ep_desc;
-	struct usb_host_interface *intf_desc = usb_intf->cur_altsetting;
-	unsigned i, ep_i = 0, ep_o = 0;
-
-	BUILD_BUG_ON(sizeof(dev->in_ep) < __MT_EP_IN_MAX);
-	BUILD_BUG_ON(sizeof(dev->out_ep) < __MT_EP_OUT_MAX);
-
-	for (i = 0; i < intf_desc->desc.bNumEndpoints; i++) {
-		ep_desc = &intf_desc->endpoint[i].desc;
-
-		if (usb_endpoint_is_bulk_in(ep_desc) &&
-		    ep_i++ < __MT_EP_IN_MAX) {
-			dev->in_ep[ep_i - 1] = usb_endpoint_num(ep_desc);
-			dev->in_max_packet = usb_endpoint_maxp(ep_desc);
-			/* Note: this is ignored by usb sub-system but vendor
-			 *	 code does it. We can drop this at some point.
-			 */
-			dev->in_ep[ep_i - 1] |= USB_DIR_IN;
-		} else if (usb_endpoint_is_bulk_out(ep_desc) &&
-			   ep_o++ < __MT_EP_OUT_MAX) {
-			dev->out_ep[ep_o - 1] = usb_endpoint_num(ep_desc);
-			dev->out_max_packet = usb_endpoint_maxp(ep_desc);
-		}
-	}
-
-	if (ep_i != __MT_EP_IN_MAX || ep_o != __MT_EP_OUT_MAX) {
-		dev_err(dev->mt76.dev, "Error: wrong pipe number in:%d out:%d\n",
-			ep_i, ep_o);
-		return -EINVAL;
-	}
-
-	return 0;
 }
 
 static int mt76x0_probe(struct usb_interface *usb_intf,
@@ -262,12 +59,6 @@ static int mt76x0_probe(struct usb_interface *usb_intf,
 	struct mt76x0_dev *dev;
 	u32 asic_rev, mac_rev;
 	int ret;
-	static const struct mt76_bus_ops usb_ops = {
-		.rr = mt76x0_rr,
-		.wr = mt76x0_wr,
-		.rmw = mt76x0_rmw,
-		.copy = mt76x0_wr_copy,
-	};
 
 	dev = mt76x0_alloc_device(&usb_intf->dev);
 	if (!dev)
@@ -278,18 +69,17 @@ static int mt76x0_probe(struct usb_interface *usb_intf,
 
 	usb_set_intfdata(usb_intf, dev);
 
-	dev->mt76.bus = &usb_ops;
-
-	ret = mt76x0_assign_pipes(usb_intf, dev);
+	ret = mt76u_init(&dev->mt76, usb_intf);
 	if (ret)
 		goto err;
 
 	/* Disable the HW, otherwise MCU fail to initalize on hot reboot */
 	mt76x0_chip_onoff(dev, false, false);
 
-	ret = mt76x0_wait_asic_ready(dev);
-	if (ret)
+	if (!mt76x02_wait_for_mac(&dev->mt76)) {
+		ret = -ETIMEDOUT;
 		goto err;
+	}
 
 	asic_rev = mt76_rr(dev, MT_ASIC_VERSION);
 	mac_rev = mt76_rr(dev, MT_MAC_CSR0);

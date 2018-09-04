@@ -53,6 +53,11 @@ enum mt76_txq_id {
 	__MT_TXQ_MAX
 };
 
+struct mt76_reg_pair {
+	u32 reg;
+	u32 value;
+};
+
 enum mt76_rxq_id {
 	MT_RXQ_MAIN,
 	MT_RXQ_MCU,
@@ -307,6 +312,12 @@ struct mt76_usb {
 		struct completion cmpl;
 		struct mt76u_buf res;
 		u32 msg_seq;
+
+		/* multiple reads */
+		struct mt76_reg_pair *rp;
+		int rp_len;
+		u32 base;
+		bool burst;
 	} mcu;
 };
 
@@ -317,6 +328,9 @@ struct mt76_dev {
 
 	spinlock_t lock;
 	spinlock_t cc_lock;
+
+	struct mutex mutex;
+
 	const struct mt76_bus_ops *bus;
 	const struct mt76_driver_ops *drv;
 	void __iomem *regs;
@@ -352,6 +366,8 @@ struct mt76_dev {
 	char led_name[32];
 	bool led_al;
 	u8 led_pin;
+
+	u32 rxfilter;
 
 	struct mt76_usb usb;
 };
@@ -399,6 +415,11 @@ struct mt76_rx_status {
 	s8 chain_signal[IEEE80211_MAX_CHAINS];
 };
 
+#define __mt76_rr(dev, ...)	(dev)->bus->rr((dev), __VA_ARGS__)
+#define __mt76_wr(dev, ...)	(dev)->bus->wr((dev), __VA_ARGS__)
+#define __mt76_rmw(dev, ...)	(dev)->bus->rmw((dev), __VA_ARGS__)
+#define __mt76_wr_copy(dev, ...)	(dev)->bus->copy((dev), __VA_ARGS__)
+
 #define mt76_rr(dev, ...)	(dev)->mt76.bus->rr(&((dev)->mt76), __VA_ARGS__)
 #define mt76_wr(dev, ...)	(dev)->mt76.bus->wr(&((dev)->mt76), __VA_ARGS__)
 #define mt76_rmw(dev, ...)	(dev)->mt76.bus->rmw(&((dev)->mt76), __VA_ARGS__)
@@ -412,6 +433,9 @@ struct mt76_rx_status {
 
 #define mt76_rmw_field(_dev, _reg, _field, _val)	\
 	mt76_rmw(_dev, _reg, _field, FIELD_PREP(_field, _val))
+
+#define __mt76_rmw_field(_dev, _reg, _field, _val)	\
+	__mt76_rmw(_dev, _reg, _field, FIELD_PREP(_field, _val))
 
 #define mt76_hw(dev) (dev)->mt76.hw
 
@@ -605,9 +629,12 @@ int mt76u_mcu_fw_send_data(struct mt76_dev *dev, const void *data,
 			   int data_len, u32 max_payload, u32 offset);
 void mt76u_mcu_complete_urb(struct urb *urb);
 struct sk_buff *mt76u_mcu_msg_alloc(const void *data, int len);
+int __mt76u_mcu_send_msg(struct mt76_dev *dev, struct sk_buff *skb,
+			 int cmd, bool wait_resp);
 int mt76u_mcu_send_msg(struct mt76_dev *dev, struct sk_buff *skb,
 		       int cmd, bool wait_resp);
 void mt76u_mcu_fw_reset(struct mt76_dev *dev);
 int mt76u_mcu_init_rx(struct mt76_dev *dev);
+void mt76u_mcu_deinit(struct mt76_dev *dev);
 
 #endif
