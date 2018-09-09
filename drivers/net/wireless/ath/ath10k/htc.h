@@ -77,8 +77,7 @@ struct ath10k_htc_hdr {
 		u8 seq_no; /* for tx */
 		u8 control_byte1;
 	} __packed;
-	u8 pad0;
-	u8 pad1;
+	__le16 credit_pad; /* used by bundle processing in SDIO systems */
 } __packed __aligned(4);
 
 enum ath10k_ath10k_htc_msg_id {
