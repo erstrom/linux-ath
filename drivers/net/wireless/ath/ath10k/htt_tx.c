@@ -1258,7 +1258,6 @@ static int ath10k_htt_tx_hl(struct ath10k_htt *htt, enum ath10k_hw_txrx_mode txm
 	}
 
 	if (ar->hif.bus == ATH10K_BUS_SDIO) {
-		flags1 |= HTT_DATA_TX_DESC_FLAGS1_POSTPONED;
 		res = ath10k_htt_tx_alloc_msdu_id(htt, msdu);
 		if (res < 0) {
 			ath10k_err(ar, "msdu_id allocation failed %d\n", res);
