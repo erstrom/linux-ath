@@ -77,7 +77,8 @@ void ath10k_mac_vif_tx_unlock(struct ath10k_vif *arvif, int reason);
 bool ath10k_mac_tx_frm_has_freq(struct ath10k *ar);
 void ath10k_mac_tx_push_pending(struct ath10k *ar);
 int ath10k_mac_tx_push_txq(struct ieee80211_hw *hw,
-			   struct ieee80211_txq *txq);
+			   struct ieee80211_txq *txq,
+			   bool more_data);
 struct ieee80211_txq *ath10k_mac_txq_lookup(struct ath10k *ar,
 					    u16 peer_id,
 					    u8 tid);
