@@ -663,6 +663,8 @@ int ath10k_htc_wait_target(struct ath10k_htc *htc)
 		htc->max_msgs_per_htc_bundle =
 			min_t(u8, msg->ready_ext.max_msgs_per_htc_bundle,
 			      HTC_HOST_MAX_MSG_PER_RX_BUNDLE);
+		htc->target_alt_data_credit_size =
+			__le16_to_cpu(msg->ready_ext.alt_data_credit_size);
 		ath10k_dbg(ar, ATH10K_DBG_HTC,
 			   "Extended ready message. RX bundle size: %d\n",
 			   htc->max_msgs_per_htc_bundle);
@@ -802,6 +804,10 @@ setup:
 	ep->max_tx_queue_depth = conn_req->max_send_queue_depth;
 	ep->max_ep_message_len = __le16_to_cpu(resp_msg->max_msg_size);
 	ep->tx_credits = tx_alloc;
+	if (htc->target_alt_data_credit_size && (ar->hif.bus == ATH10K_BUS_SDIO))
+		ep->tx_credit_size = htc->target_alt_data_credit_size;
+	else
+		ep->tx_credit_size = htc->target_credit_size;
 
 	/* copy all the callbacks */
 	ep->ep_ops = conn_req->ep_ops;
