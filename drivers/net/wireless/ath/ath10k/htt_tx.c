@@ -156,7 +156,7 @@ void ath10k_htt_tx_dec_pending(struct ath10k_htt *htt)
 	lockdep_assert_held(&htt->tx_lock);
 
 	htt->num_pending_tx--;
-	if (htt->num_pending_tx == htt->max_num_pending_tx - 1)
+	if (htt->num_pending_tx == htt->num_pending_tx_unlock)
 		ath10k_mac_tx_unlock(htt->ar, ATH10K_TX_PAUSE_Q_FULL);
 }
 
@@ -168,7 +168,7 @@ int ath10k_htt_tx_inc_pending(struct ath10k_htt *htt)
 		return -EBUSY;
 
 	htt->num_pending_tx++;
-	if (htt->num_pending_tx == htt->max_num_pending_tx)
+	if (htt->num_pending_tx == htt->num_pending_tx_lock)
 		ath10k_mac_tx_lock(htt->ar, ATH10K_TX_PAUSE_Q_FULL);
 
 	return 0;
