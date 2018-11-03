@@ -105,6 +105,8 @@
 #define ATH10K_SDIO_MAX_RX_MSGS \
 	(HTC_HOST_MAX_MSG_PER_RX_BUNDLE * HTC_HOST_MAX_MSG_PER_RX_BUNDLE)
 
+#define ATH10K_SDIO_MAX_BUNDLE_MESSAGE_SIZE \
+	(HTC_HOST_MAX_MSG_PER_TX_BUNDLE * 2000)
 #define ATH10K_FIFO_TIMEOUT_AND_CHIP_CONTROL   0x00000868u
 #define ATH10K_FIFO_TIMEOUT_AND_CHIP_CONTROL_DISABLE_SLEEP_OFF 0xFFFEFFFF
 #define ATH10K_FIFO_TIMEOUT_AND_CHIP_CONTROL_DISABLE_SLEEP_ON 0x10000
@@ -116,6 +118,8 @@ struct ath10k_sdio_bus_request {
 	u32 address;
 
 	struct sk_buff *skb;
+	u8 buf[ATH10K_SDIO_MAX_BUNDLE_MESSAGE_SIZE];
+	size_t buf_len;
 	enum ath10k_htc_ep_id eid;
 	int status;
 	/* Specifies if the current request is an HTC message.
