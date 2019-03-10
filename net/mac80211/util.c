@@ -1503,6 +1503,7 @@ void ieee80211_send_auth(struct ieee80211_sub_if_data *sdata,
 	struct ieee80211_local *local = sdata->local;
 	struct sk_buff *skb;
 	struct ieee80211_mgmt *mgmt;
+	unsigned int hdrlen;
 	int err;
 
 	/* 24 + 6 = header + auth_algo + auth_transaction + status_code */
@@ -1526,8 +1527,10 @@ void ieee80211_send_auth(struct ieee80211_sub_if_data *sdata,
 		skb_put_data(skb, extra, extra_len);
 
 	if (auth_alg == WLAN_AUTH_SHARED_KEY && transaction == 3) {
+		hdrlen = ieee80211_hdrlen(mgmt->frame_control);
 		mgmt->frame_control |= cpu_to_le16(IEEE80211_FCTL_PROTECTED);
-		err = ieee80211_wep_encrypt(local, skb, key, key_len, key_idx);
+		err = ieee80211_wep_encrypt(local, skb, hdrlen, key,
+					    key_len, key_idx);
 		WARN_ON(err);
 	}
 

@@ -179,6 +179,7 @@ struct ieee80211_tx_data {
 	struct ieee80211_tx_rate rate;
 
 	unsigned int flags;
+	unsigned int hdrlen;
 };
 
 
