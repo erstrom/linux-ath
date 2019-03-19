@@ -1270,7 +1270,7 @@ struct ieee80211_local {
 
 	/*
 	 * Key mutex, protects sdata's key_list and sta_info's
-	 * key pointers (write access, they're RCU.)
+	 * key pointers and ptk_idx (write access, they're RCU.)
 	 */
 	struct mutex key_mtx;
 
