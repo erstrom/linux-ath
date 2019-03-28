@@ -1385,6 +1385,7 @@ struct ieee80211_local {
 		struct dentry *rcdir;
 		struct dentry *keys;
 	} debugfs;
+	bool force_tx_status;
 #endif
 
 	/*
