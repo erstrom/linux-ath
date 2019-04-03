@@ -1254,16 +1254,6 @@ static int mlxsw_sp_port_kill_vid(struct net_device *dev,
 	return 0;
 }
 
-static int mlxsw_sp_port_get_phys_port_name(struct net_device *dev, char *name,
-					    size_t len)
-{
-	struct mlxsw_sp_port *mlxsw_sp_port = netdev_priv(dev);
-
-	return mlxsw_core_port_get_phys_port_name(mlxsw_sp_port->mlxsw_sp->core,
-						  mlxsw_sp_port->local_port,
-						  name, len);
-}
-
 static struct mlxsw_sp_port_mall_tc_entry *
 mlxsw_sp_port_mall_tc_entry_find(struct mlxsw_sp_port *port,
 				 unsigned long cookie) {
@@ -1726,6 +1716,16 @@ static int mlxsw_sp_port_get_port_parent_id(struct net_device *dev,
 	return 0;
 }
 
+static struct devlink_port *
+mlxsw_sp_port_get_devlink_port(struct net_device *dev)
+{
+	struct mlxsw_sp_port *mlxsw_sp_port = netdev_priv(dev);
+	struct mlxsw_sp *mlxsw_sp = mlxsw_sp_port->mlxsw_sp;
+
+	return mlxsw_core_port_devlink_port_get(mlxsw_sp->core,
+						mlxsw_sp_port->local_port);
+}
+
 static const struct net_device_ops mlxsw_sp_port_netdev_ops = {
 	.ndo_open		= mlxsw_sp_port_open,
 	.ndo_stop		= mlxsw_sp_port_stop,
@@ -1739,9 +1739,9 @@ static const struct net_device_ops mlxsw_sp_port_netdev_ops = {
 	.ndo_get_offload_stats	= mlxsw_sp_port_get_offload_stats,
 	.ndo_vlan_rx_add_vid	= mlxsw_sp_port_add_vid,
 	.ndo_vlan_rx_kill_vid	= mlxsw_sp_port_kill_vid,
-	.ndo_get_phys_port_name	= mlxsw_sp_port_get_phys_port_name,
 	.ndo_set_features	= mlxsw_sp_set_features,
 	.ndo_get_port_parent_id	= mlxsw_sp_port_get_port_parent_id,
+	.ndo_get_devlink_port	= mlxsw_sp_port_get_devlink_port,
 };
 
 static void mlxsw_sp_port_get_drvinfo(struct net_device *dev,
@@ -3391,7 +3391,8 @@ static int mlxsw_sp_port_create(struct mlxsw_sp *mlxsw_sp, u8 local_port,
 	struct net_device *dev;
 	int err;
 
-	err = mlxsw_core_port_init(mlxsw_sp->core, local_port);
+	err = mlxsw_core_port_init(mlxsw_sp->core, local_port,
+				   module + 1, split, lane / width);
 	if (err) {
 		dev_err(mlxsw_sp->bus_info->dev, "Port %d: Failed to init core port\n",
 			local_port);
@@ -3573,8 +3574,7 @@ static int mlxsw_sp_port_create(struct mlxsw_sp *mlxsw_sp, u8 local_port,
 	}
 
 	mlxsw_core_port_eth_set(mlxsw_sp->core, mlxsw_sp_port->local_port,
-				mlxsw_sp_port, dev, module + 1,
-				mlxsw_sp_port->split, lane / width);
+				mlxsw_sp_port, dev);
 	mlxsw_core_schedule_dw(&mlxsw_sp_port->periodic_hw_stats.update_dw, 0);
 	return 0;
 

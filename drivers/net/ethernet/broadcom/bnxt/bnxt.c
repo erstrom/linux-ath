@@ -551,7 +551,7 @@ normal_tx:
 	prod = NEXT_TX(prod);
 	txr->tx_prod = prod;
 
-	if (!skb->xmit_more || netif_xmit_stopped(txq))
+	if (!netdev_xmit_more() || netif_xmit_stopped(txq))
 		bnxt_db_write(bp, &txr->tx_db, prod);
 
 tx_done:
@@ -559,7 +559,7 @@ tx_done:
 	mmiowb();
 
 	if (unlikely(bnxt_tx_avail(bp, txr) <= MAX_SKB_FRAGS + 1)) {
-		if (skb->xmit_more && !tx_buf->is_push)
+		if (netdev_xmit_more() && !tx_buf->is_push)
 			bnxt_db_write(bp, &txr->tx_db, prod);
 
 		netif_tx_stop_queue(txq);
@@ -10048,23 +10048,6 @@ static int bnxt_bridge_setlink(struct net_device *dev, struct nlmsghdr *nlh,
 	return rc;
 }
 
-static int bnxt_get_phys_port_name(struct net_device *dev, char *buf,
-				   size_t len)
-{
-	struct bnxt *bp = netdev_priv(dev);
-	int rc;
-
-	/* The PF and it's VF-reps only support the switchdev framework */
-	if (!BNXT_PF(bp))
-		return -EOPNOTSUPP;
-
-	rc = snprintf(buf, len, "p%d", bp->pf.port_id);
-
-	if (rc >= len)
-		return -EOPNOTSUPP;
-	return 0;
-}
-
 int bnxt_get_port_parent_id(struct net_device *dev,
 			    struct netdev_phys_item_id *ppid)
 {
@@ -10081,6 +10064,13 @@ int bnxt_get_port_parent_id(struct net_device *dev,
 	memcpy(ppid->id, bp->switch_id, ppid->id_len);
 
 	return 0;
+}
+
+static struct devlink_port *bnxt_get_devlink_port(struct net_device *dev)
+{
+	struct bnxt *bp = netdev_priv(dev);
+
+	return &bp->dl_port;
 }
 
 static const struct net_device_ops bnxt_netdev_ops = {
@@ -10115,7 +10105,7 @@ static const struct net_device_ops bnxt_netdev_ops = {
 	.ndo_bridge_getlink	= bnxt_bridge_getlink,
 	.ndo_bridge_setlink	= bnxt_bridge_setlink,
 	.ndo_get_port_parent_id	= bnxt_get_port_parent_id,
-	.ndo_get_phys_port_name = bnxt_get_phys_port_name
+	.ndo_get_devlink_port	= bnxt_get_devlink_port,
 };
 
 static void bnxt_remove_one(struct pci_dev *pdev)

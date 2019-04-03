@@ -1743,19 +1743,21 @@ EXPORT_SYMBOL(genphy_update_link);
  */
 int genphy_read_status(struct phy_device *phydev)
 {
-	int adv;
-	int err;
-	int lpa;
-	int lpagb = 0;
+	int adv, lpa, lpagb, err;
 
 	/* Update the link, but return if there was an error */
 	err = genphy_update_link(phydev);
 	if (err)
 		return err;
 
+	phydev->speed = SPEED_UNKNOWN;
+	phydev->duplex = DUPLEX_UNKNOWN;
+	phydev->pause = 0;
+	phydev->asym_pause = 0;
+
 	linkmode_zero(phydev->lp_advertising);
 
-	if (AUTONEG_ENABLE == phydev->autoneg) {
+	if (phydev->autoneg == AUTONEG_ENABLE && phydev->link) {
 		if (linkmode_test_bit(ETHTOOL_LINK_MODE_1000baseT_Half_BIT,
 				      phydev->supported) ||
 		    linkmode_test_bit(ETHTOOL_LINK_MODE_1000baseT_Full_BIT,
@@ -1785,14 +1787,8 @@ int genphy_read_status(struct phy_device *phydev)
 			return lpa;
 
 		mii_lpa_mod_linkmode_lpa_t(phydev->lp_advertising, lpa);
-
-		phydev->speed = SPEED_UNKNOWN;
-		phydev->duplex = DUPLEX_UNKNOWN;
-		phydev->pause = 0;
-		phydev->asym_pause = 0;
-
 		phy_resolve_aneg_linkmode(phydev);
-	} else {
+	} else if (phydev->autoneg == AUTONEG_DISABLE) {
 		int bmcr = phy_read(phydev, MII_BMCR);
 
 		if (bmcr < 0)
@@ -1809,9 +1805,6 @@ int genphy_read_status(struct phy_device *phydev)
 			phydev->speed = SPEED_100;
 		else
 			phydev->speed = SPEED_10;
-
-		phydev->pause = 0;
-		phydev->asym_pause = 0;
 	}
 
 	return 0;
@@ -1886,6 +1879,54 @@ int genphy_config_init(struct phy_device *phydev)
 	return 0;
 }
 EXPORT_SYMBOL(genphy_config_init);
+
+/**
+ * genphy_read_abilities - read PHY abilities from Clause 22 registers
+ * @phydev: target phy_device struct
+ *
+ * Description: Reads the PHY's abilities and populates
+ * phydev->supported accordingly.
+ *
+ * Returns: 0 on success, < 0 on failure
+ */
+int genphy_read_abilities(struct phy_device *phydev)
+{
+	int val;
+
+	linkmode_set_bit_array(phy_basic_ports_array,
+			       ARRAY_SIZE(phy_basic_ports_array),
+			       phydev->supported);
+
+	val = phy_read(phydev, MII_BMSR);
+	if (val < 0)
+		return val;
+
+	linkmode_mod_bit(ETHTOOL_LINK_MODE_Autoneg_BIT, phydev->supported,
+			 val & BMSR_ANEGCAPABLE);
+
+	linkmode_mod_bit(ETHTOOL_LINK_MODE_100baseT_Full_BIT, phydev->supported,
+			 val & BMSR_100FULL);
+	linkmode_mod_bit(ETHTOOL_LINK_MODE_100baseT_Half_BIT, phydev->supported,
+			 val & BMSR_100HALF);
+	linkmode_mod_bit(ETHTOOL_LINK_MODE_10baseT_Full_BIT, phydev->supported,
+			 val & BMSR_10FULL);
+	linkmode_mod_bit(ETHTOOL_LINK_MODE_10baseT_Half_BIT, phydev->supported,
+			 val & BMSR_10HALF);
+
+	if (val & BMSR_ESTATEN) {
+		val = phy_read(phydev, MII_ESTATUS);
+		if (val < 0)
+			return val;
+
+		linkmode_mod_bit(ETHTOOL_LINK_MODE_1000baseT_Full_BIT,
+				 phydev->supported, val & ESTATUS_1000_TFULL);
+		linkmode_mod_bit(ETHTOOL_LINK_MODE_1000baseT_Half_BIT,
+				 phydev->supported, val & ESTATUS_1000_THALF);
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(genphy_read_abilities);
 
 /* This is used for the phy device which doesn't support the MMD extended
  * register access, but it does have side effect when we are trying to access
@@ -2243,8 +2284,7 @@ static struct phy_driver genphy_driver = {
 	.phy_id_mask	= 0xffffffff,
 	.name		= "Generic PHY",
 	.soft_reset	= genphy_no_soft_reset,
-	.config_init	= genphy_config_init,
-	.features	= PHY_GBIT_ALL_PORTS_FEATURES,
+	.get_features	= genphy_read_abilities,
 	.aneg_done	= genphy_aneg_done,
 	.suspend	= genphy_suspend,
 	.resume		= genphy_resume,

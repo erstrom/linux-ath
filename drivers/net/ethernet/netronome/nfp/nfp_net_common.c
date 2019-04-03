@@ -909,7 +909,7 @@ static int nfp_net_tx(struct sk_buff *skb, struct net_device *netdev)
 		nfp_net_tx_ring_stop(nd_q, tx_ring);
 
 	tx_ring->wr_ptr_add += nr_frags + 1;
-	if (__netdev_tx_sent_queue(nd_q, txbuf->real_len, skb->xmit_more))
+	if (__netdev_tx_sent_queue(nd_q, txbuf->real_len, netdev_xmit_more()))
 		nfp_net_tx_xmit_more_flush(tx_ring);
 
 	return NETDEV_TX_OK;
@@ -3324,8 +3324,11 @@ nfp_net_get_phys_port_name(struct net_device *netdev, char *name, size_t len)
 	struct nfp_net *nn = netdev_priv(netdev);
 	int n;
 
+	/* If port is defined, devlink_port is registered and devlink core
+	 * is taking care of name formatting.
+	 */
 	if (nn->port)
-		return nfp_port_get_phys_port_name(netdev, name, len);
+		return -EOPNOTSUPP;
 
 	if (nn->dp.is_vf || nn->vnic_no_name)
 		return -EOPNOTSUPP;
@@ -3531,7 +3534,7 @@ const struct net_device_ops nfp_net_netdev_ops = {
 	.ndo_udp_tunnel_del	= nfp_net_del_vxlan_port,
 	.ndo_bpf		= nfp_net_xdp,
 	.ndo_get_port_parent_id	= nfp_port_get_port_parent_id,
-	.ndo_get_devlink	= nfp_devlink_get_devlink,
+	.ndo_get_devlink_port	= nfp_devlink_get_devlink_port,
 };
 
 /**
@@ -3548,7 +3551,7 @@ void nfp_net_info(struct nfp_net *nn)
 		nn->fw_ver.resv, nn->fw_ver.class,
 		nn->fw_ver.major, nn->fw_ver.minor,
 		nn->max_mtu);
-	nn_info(nn, "CAP: %#x %s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s\n",
+	nn_info(nn, "CAP: %#x %s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s\n",
 		nn->cap,
 		nn->cap & NFP_NET_CFG_CTRL_PROMISC  ? "PROMISC "  : "",
 		nn->cap & NFP_NET_CFG_CTRL_L2BC     ? "L2BCFILT " : "",
@@ -3564,7 +3567,6 @@ void nfp_net_info(struct nfp_net *nn)
 		nn->cap & NFP_NET_CFG_CTRL_RSS      ? "RSS1 "     : "",
 		nn->cap & NFP_NET_CFG_CTRL_RSS2     ? "RSS2 "     : "",
 		nn->cap & NFP_NET_CFG_CTRL_CTAG_FILTER ? "CTAG_FILTER " : "",
-		nn->cap & NFP_NET_CFG_CTRL_L2SWITCH ? "L2SWITCH " : "",
 		nn->cap & NFP_NET_CFG_CTRL_MSIXAUTO ? "AUTOMASK " : "",
 		nn->cap & NFP_NET_CFG_CTRL_IRQMOD   ? "IRQMOD "   : "",
 		nn->cap & NFP_NET_CFG_CTRL_VXLAN    ? "VXLAN "    : "",
