@@ -4360,7 +4360,6 @@ static void ath10k_mac_op_wake_tx_queue(struct ieee80211_hw *hw,
 					struct ieee80211_txq *txq)
 {
 	struct ath10k *ar = hw->priv;
-	int ret;
 	u8 ac;
 
 	ath10k_htt_tx_txq_update(hw, txq);
@@ -4373,11 +4372,9 @@ static void ath10k_mac_op_wake_tx_queue(struct ieee80211_hw *hw,
 	if (!txq)
 		goto out;
 
-	while (ath10k_mac_tx_can_push(hw, txq)) {
-		ret = ath10k_mac_tx_push_txq(hw, txq);
-		if (ret < 0)
-			break;
-	}
+	if (ath10k_mac_tx_can_push(hw, txq))
+		ath10k_mac_tx_push_txq(hw, txq);
+
 	ieee80211_return_txq(hw, txq, false);
 	ath10k_htt_tx_txq_update(hw, txq);
 out:
