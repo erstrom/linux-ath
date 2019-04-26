@@ -44,12 +44,13 @@
 
 static inline void ieee80211_tx_stats(struct net_device *dev, u32 len)
 {
+	unsigned long flags;
 	struct pcpu_sw_netstats *tstats = this_cpu_ptr(dev->tstats);
 
-	u64_stats_update_begin(&tstats->syncp);
+	flags = u64_stats_update_begin_irqsave(&tstats->syncp);
 	tstats->tx_packets++;
 	tstats->tx_bytes += len;
-	u64_stats_update_end(&tstats->syncp);
+	u64_stats_update_end_irqrestore(&tstats->syncp, flags);
 }
 
 static __le16 ieee80211_duration(struct ieee80211_tx_data *tx,
