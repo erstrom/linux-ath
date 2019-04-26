@@ -1279,6 +1279,7 @@ static void ath10k_sdio_free_bus_req(struct ath10k *ar,
 {
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 
+	kfree(bus_req->buf);
 	memset(bus_req, 0, sizeof(*bus_req));
 
 	spin_lock_bh(&ar_sdio->lock);
@@ -1294,7 +1295,7 @@ static void __ath10k_sdio_write_async(struct ath10k *ar,
 	int ret;
 
 	skb = req->skb;
-	ret = ath10k_sdio_write(ar, req->address, skb->data, skb->len);
+	ret = ath10k_sdio_write(ar, req->address, req->buf, req->buf_len);
 	if (ret)
 		ath10k_warn(ar, "failed to write skb to 0x%x asynchronously: %d",
 			    req->address, ret);
@@ -1330,6 +1331,7 @@ static void ath10k_sdio_write_async_work(struct work_struct *work)
 
 static int ath10k_sdio_prep_async_req(struct ath10k *ar, u32 addr,
 				      struct sk_buff *skb,
+				      size_t alloc_len,
 				      struct completion *comp,
 				      bool htc_msg, enum ath10k_htc_ep_id eid)
 {
@@ -1343,9 +1345,17 @@ static int ath10k_sdio_prep_async_req(struct ath10k *ar, u32 addr,
 	if (!bus_req) {
 		ath10k_warn(ar,
 			    "unable to allocate bus request for async request\n");
-		return -ENOMEM;
+		goto err;
 	}
 
+	bus_req->buf_len = alloc_len;
+	bus_req->buf = kzalloc(alloc_len, GFP_NOFS);
+	if (!bus_req->buf) {
+		ath10k_warn(ar,
+			    "unable to allocate data buffer for bus request\n");
+		goto err_free_bus_req;
+	}
+	memcpy(bus_req->buf, skb->data, skb->len);
 	bus_req->skb = skb;
 	bus_req->eid = eid;
 	bus_req->address = addr;
@@ -1357,6 +1367,11 @@ static int ath10k_sdio_prep_async_req(struct ath10k *ar, u32 addr,
 	spin_unlock_bh(&ar_sdio->wr_async_lock);
 
 	return 0;
+
+err_free_bus_req:
+	ath10k_sdio_free_bus_req(ar, bus_req);
+err:
+	return -ENOMEM;
 }
 
 /* IRQ handler */
@@ -1501,12 +1516,11 @@ static int ath10k_sdio_hif_tx_sg(struct ath10k *ar, u8 pipe_id,
 		skb = items[i].transfer_context;
 		padded_len = ath10k_sdio_calc_txrx_padded_len(ar_sdio,
 							      skb->len);
-		skb_trim(skb, padded_len);
 
 		/* Write TX data to the end of the mbox address space */
 		address = ar_sdio->mbox_addr[eid] + ar_sdio->mbox_size[eid] -
-			  skb->len;
-		ret = ath10k_sdio_prep_async_req(ar, address, skb,
+			  padded_len;
+		ret = ath10k_sdio_prep_async_req(ar, address, skb, padded_len,
 						 NULL, true, eid);
 		if (ret)
 			return ret;
@@ -1761,7 +1775,8 @@ static void ath10k_sdio_irq_disable(struct ath10k *ar)
 
 	init_completion(&irqs_disabled_comp);
 	ret = ath10k_sdio_prep_async_req(ar, MBOX_INT_STATUS_ENABLE_ADDRESS,
-					 skb, &irqs_disabled_comp, false, 0);
+					 skb, skb->len, &irqs_disabled_comp,
+					 false, 0);
 	if (ret)
 		goto out;
 
