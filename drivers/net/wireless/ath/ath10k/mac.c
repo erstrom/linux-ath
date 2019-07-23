@@ -4034,6 +4034,11 @@ int ath10k_mac_tx_push_txq(struct ieee80211_hw *hw,
 		return -ENOENT;
 	}
 
+	spin_lock_bh(&ar->htt.tx_lock);
+	if (htt->num_pending_tx == htt->max_num_pending_tx)
+		ath10k_mac_tx_lock(ar, ATH10K_TX_PAUSE_Q_FULL);
+	spin_unlock_bh(&ar->htt.tx_lock);
+
 	airtime = ath10k_mac_update_airtime(ar, txq, skb);
 	ath10k_mac_tx_h_fill_cb(ar, vif, txq, skb, airtime);
 
@@ -4325,6 +4330,9 @@ static void ath10k_mac_op_tx(struct ieee80211_hw *hw,
 			ieee80211_free_txskb(ar->hw, skb);
 			return;
 		}
+
+		if (htt->num_pending_tx == htt->max_num_pending_tx)
+			ath10k_mac_tx_lock(ar, ATH10K_TX_PAUSE_Q_FULL);
 
 		ret = ath10k_htt_tx_mgmt_inc_pending(htt, is_mgmt, is_presp);
 		if (ret) {
