@@ -1368,6 +1368,7 @@ cfg80211_inform_single_bss_data(struct wiphy *wiphy,
 	struct cfg80211_internal_bss tmp = {}, *res;
 	int bss_type;
 	bool signal_valid;
+	unsigned long ts;
 
 	if (WARN_ON(!wiphy))
 		return NULL;
@@ -1390,8 +1391,11 @@ cfg80211_inform_single_bss_data(struct wiphy *wiphy,
 	tmp.ts_boottime = data->boottime_ns;
 	if (non_tx_data) {
 		tmp.pub.transmitted_bss = non_tx_data->tx_bss;
+		ts = bss_from_pub(non_tx_data->tx_bss)->ts;
 		tmp.pub.bssid_index = non_tx_data->bssid_index;
 		tmp.pub.max_bssid_indicator = non_tx_data->max_bssid_indicator;
+	} else {
+		ts = jiffies;
 	}
 
 	/*
@@ -1425,8 +1429,7 @@ cfg80211_inform_single_bss_data(struct wiphy *wiphy,
 
 	signal_valid = abs(data->chan->center_freq - channel->center_freq) <=
 		wiphy->max_adj_channel_rssi_comp;
-	res = cfg80211_bss_update(wiphy_to_rdev(wiphy), &tmp, signal_valid,
-				  jiffies);
+	res = cfg80211_bss_update(wiphy_to_rdev(wiphy), &tmp, signal_valid, ts);
 	if (!res)
 		return NULL;
 
@@ -1440,7 +1443,7 @@ cfg80211_inform_single_bss_data(struct wiphy *wiphy,
 			regulatory_hint_found_beacon(wiphy, channel, gfp);
 	}
 
-	if (non_tx_data && non_tx_data->tx_bss) {
+	if (non_tx_data) {
 		/* this is a nontransmitting bss, we need to add it to
 		 * transmitting bss' list if it is not there
 		 */
@@ -1659,6 +1662,8 @@ cfg80211_inform_bss_data(struct wiphy *wiphy,
 	res = cfg80211_inform_single_bss_data(wiphy, data, ftype, bssid, tsf,
 					      capability, beacon_interval, ie,
 					      ielen, NULL, gfp);
+	if (!res)
+		return NULL;
 	non_tx_data.tx_bss = res;
 	cfg80211_parse_mbssid_data(wiphy, data, ftype, bssid, tsf,
 				   beacon_interval, ie, ielen, &non_tx_data,
@@ -1776,7 +1781,6 @@ static struct cfg80211_bss *
 cfg80211_inform_single_bss_frame_data(struct wiphy *wiphy,
 				      struct cfg80211_inform_bss *data,
 				      struct ieee80211_mgmt *mgmt, size_t len,
-				      struct cfg80211_non_tx_bss *non_tx_data,
 				      gfp_t gfp)
 {
 	struct cfg80211_internal_bss tmp = {}, *res;
@@ -1835,11 +1839,6 @@ cfg80211_inform_single_bss_frame_data(struct wiphy *wiphy,
 	tmp.pub.chains = data->chains;
 	memcpy(tmp.pub.chain_signal, data->chain_signal, IEEE80211_MAX_CHAINS);
 	ether_addr_copy(tmp.parent_bssid, data->parent_bssid);
-	if (non_tx_data) {
-		tmp.pub.transmitted_bss = non_tx_data->tx_bss;
-		tmp.pub.bssid_index = non_tx_data->bssid_index;
-		tmp.pub.max_bssid_indicator = non_tx_data->max_bssid_indicator;
-	}
 
 	signal_valid = abs(data->chan->center_freq - channel->center_freq) <=
 		wiphy->max_adj_channel_rssi_comp;
@@ -1877,7 +1876,7 @@ cfg80211_inform_bss_frame_data(struct wiphy *wiphy,
 	struct cfg80211_non_tx_bss non_tx_data;
 
 	res = cfg80211_inform_single_bss_frame_data(wiphy, data, mgmt,
-						    len, NULL, gfp);
+						    len, gfp);
 	if (!res || !wiphy->support_mbssid ||
 	    !cfg80211_find_ie(WLAN_EID_MULTIPLE_BSSID, ie, ielen))
 		return res;
