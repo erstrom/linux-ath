@@ -422,6 +422,3 @@ That is, the recovery API only requires that:
    - drivers/net/cxgb3
    - drivers/net/s2io.c
    - drivers/net/qlge
-
-The End
--------

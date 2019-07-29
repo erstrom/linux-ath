@@ -888,7 +888,7 @@ static struct sk_buff *bnxt_rx_page_skb(struct bnxt *bp,
 {
 	unsigned int payload = offset_and_len >> 16;
 	unsigned int len = offset_and_len & 0xffff;
-	struct skb_frag_struct *frag;
+	skb_frag_t *frag;
 	struct page *page = data;
 	u16 prod = rxr->rx_prod;
 	struct sk_buff *skb;
@@ -10920,8 +10920,7 @@ shutdown_exit:
 #ifdef CONFIG_PM_SLEEP
 static int bnxt_suspend(struct device *device)
 {
-	struct pci_dev *pdev = to_pci_dev(device);
-	struct net_device *dev = pci_get_drvdata(pdev);
+	struct net_device *dev = dev_get_drvdata(device);
 	struct bnxt *bp = netdev_priv(dev);
 	int rc = 0;
 
@@ -10937,8 +10936,7 @@ static int bnxt_suspend(struct device *device)
 
 static int bnxt_resume(struct device *device)
 {
-	struct pci_dev *pdev = to_pci_dev(device);
-	struct net_device *dev = pci_get_drvdata(pdev);
+	struct net_device *dev = dev_get_drvdata(device);
 	struct bnxt *bp = netdev_priv(dev);
 	int rc = 0;
 
