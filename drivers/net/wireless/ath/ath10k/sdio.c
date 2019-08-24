@@ -2160,6 +2160,11 @@ static void ath10k_sdio_remove(struct sdio_func *func)
 
 	flush_workqueue(ar_sdio->workqueue);
 	destroy_workqueue(ar_sdio->workqueue);
+
+	if (ar->is_started && ar->hw_params.start_once) {
+		ath10k_hif_stop(ar);
+		ath10k_hif_power_down(ar);
+	}
 }
 
 static const struct sdio_device_id ath10k_sdio_devices[] = {
