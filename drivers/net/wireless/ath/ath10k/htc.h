@@ -39,7 +39,7 @@ struct ath10k;
  * 4-byte aligned.
  */
 
-#define HTC_HOST_MAX_MSG_PER_RX_BUNDLE        8
+#define HTC_HOST_MAX_MSG_PER_RX_BUNDLE        32
 
 enum ath10k_htc_tx_flags {
 	ATH10K_HTC_FLAG_NEED_CREDIT_UPDATE = 0x01,
@@ -51,6 +51,12 @@ enum ath10k_htc_rx_flags {
 	ATH10K_HTC_FLAG_TRAILER_PRESENT = 0x02,
 	ATH10K_HTC_FLAG_BUNDLE_MASK     = 0xF0
 };
+
+#define BUNDLE_EXTRA_MASK GENMASK(3, 2)
+
+#define HTC_GET_BUNDLE_COUNT(flags) \
+	    (FIELD_GET(ATH10K_HTC_FLAG_BUNDLE_MASK, (flags)) +  \
+	    (FIELD_GET(BUNDLE_EXTRA_MASK, (flags)) << 4))
 
 struct ath10k_htc_hdr {
 	u8 eid; /* @enum ath10k_htc_ep_id */
