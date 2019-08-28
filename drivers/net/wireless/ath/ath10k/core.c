@@ -30,6 +30,7 @@ EXPORT_SYMBOL(ath10k_debug_mask);
 
 static unsigned int ath10k_cryptmode_param;
 static bool uart_print;
+static bool disable_tx_comp = true;
 static bool skip_otp;
 static bool rawmode;
 
@@ -40,6 +41,9 @@ unsigned long ath10k_coredump_mask = BIT(ATH10K_FW_CRASH_DUMP_REGISTERS) |
 module_param_named(debug_mask, ath10k_debug_mask, uint, 0644);
 module_param_named(cryptmode, ath10k_cryptmode_param, uint, 0644);
 module_param(uart_print, bool, 0644);
+
+/* If upper layer need the TX complete status, it can enable tx complete */
+module_param(disable_tx_comp, bool, 0644);
 module_param(skip_otp, bool, 0644);
 module_param(rawmode, bool, 0644);
 module_param_named(coredump_mask, ath10k_coredump_mask, ulong, 0444);
@@ -669,7 +673,10 @@ static void ath10k_init_sdio(struct ath10k *ar, enum ath10k_firmware_mode mode)
 	/* Data transfer is not initiated, when reduced Tx completion
 	 * is used for SDIO. disable it until fixed
 	 */
-	param &= ~HI_ACS_FLAGS_SDIO_REDUCE_TX_COMPL_SET;
+	if (disable_tx_comp)
+		param |= HI_ACS_FLAGS_SDIO_REDUCE_TX_COMPL_SET;
+	else
+		param &= ~HI_ACS_FLAGS_SDIO_REDUCE_TX_COMPL_SET;
 
 	/* Alternate credit size of 1544 as used by SDIO firmware is
 	 * not big enough for mac80211 / native wifi frames. disable it
