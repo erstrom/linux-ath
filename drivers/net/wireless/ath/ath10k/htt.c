@@ -157,6 +157,8 @@ int ath10k_htt_connect(struct ath10k_htt *htt)
 
 	htt->eid = conn_resp.eid;
 
+	skb_queue_head_init(&htt->rx_indication_head);
+
 	if (ar->bus_param.dev_type == ATH10K_DEV_TYPE_HL) {
 		ep = &ar->htc.endpoint[htt->eid];
 		ath10k_htc_setup_tx_req(ep);
